@@ -29,6 +29,20 @@ def _entry(field: str, patch: Patch, bc: Boundary, base) -> dict:
     if bc.kind == "freeOutflow":
         return {"type": "zeroGradient"}
 
+    if bc.kind == "waterLevelOutlet":
+        # ambient pressure measured from the tailwater level (see href_dict): hydrostatic below it
+        if field == "U":
+            return {"type": "pressureInletOutletVelocity", "value": ZERO_VECTOR}
+        if field == "p_rgh":
+            return {"type": "totalPressure", "p0": "uniform 0"}
+        return {"type": "zeroGradient"}
+    if bc.kind in ("waveInlet", "waveOutlet"):
+        if field == "U":
+            return {"type": "waveVelocity", "value": ZERO_VECTOR}
+        if field == "p_rgh":
+            return {"type": "fixedFluxPressure", "value": "uniform 0"}
+        return {"type": "waveAlpha", "value": "uniform 0"} if bc.kind == "waveInlet" else {"type": "zeroGradient"}
+
     if field == "U":
         if bc.kind in ("velocityInlet", "movingWall"):
             return {"type": "fixedValue", "value": base._vector(bc.velocity)}
@@ -124,19 +138,33 @@ def fv_solution(project: Project) -> dict:
 
     pressure = {"solver": "PCG", "preconditioner": "DIC", "tolerance": 1e-07, "relTol": 0.05}
     transport = {"solver": "smoothSolver", "smoother": "symGaussSeidel", "tolerance": 1e-08, "relTol": 0.1}
+    if project.physics.solver == "interIsoFoam":
+        # geometric reconstruction of the water surface (isoAdvector): a sharper interface
+        interface = {
+            "isoFaceTol": 1e-06,
+            "surfCellTol": 1e-06,
+            "nAlphaBounds": 3,
+            "snapTol": 1e-12,
+            "clip": True,
+            "reconstructionScheme": "isoAlpha",
+            "nAlphaSubCycles": 1,
+            "cAlpha": 1,
+        }
+    else:
+        interface = {
+            "nAlphaCorr": 2,
+            "nAlphaSubCycles": 1,
+            "cAlpha": 1,
+            "MULESCorr": True,
+            "nLimiterIter": 5,
+            "solver": "smoothSolver",
+            "smoother": "symGaussSeidel",
+            "tolerance": 1e-08,
+            "relTol": 0,
+        }
     return {
         "solvers": {
-            '"alpha.water.*"': {
-                "nAlphaCorr": 2,
-                "nAlphaSubCycles": 1,
-                "cAlpha": 1,
-                "MULESCorr": True,
-                "nLimiterIter": 5,
-                "solver": "smoothSolver",
-                "smoother": "symGaussSeidel",
-                "tolerance": 1e-08,
-                "relTol": 0,
-            },
+            '"alpha.water.*"': interface,
             '"pcorr.*"': {"solver": "PCG", "preconditioner": "DIC", "tolerance": 1e-05, "relTol": 0},
             "p_rgh": pressure,
             "p_rghFinal": {**pressure, "relTol": 0},
@@ -181,3 +209,46 @@ def set_fields_dict(project: Project) -> dict:
             for box in project.physics.water_regions
         ],
     }
+
+
+def up_direction(project: Project) -> list[float]:
+    """Unit vector pointing up (against gravity)."""
+    g = [float(c) for c in project.physics.gravity]
+    size = sum(c * c for c in g) ** 0.5 or 1.0
+    return [-c / size + 0.0 for c in g]
+
+
+def href_dict(project: Project, patches: Sequence[Patch]) -> dict | None:
+    """Reference height for the hydrostatic pressure: the tailwater level of a water-level outlet.
+
+    With it, the fixed ambient pressure on that outlet is hydrostatic below the given level.
+    """
+    levels = [
+        bc.level
+        for bc in (project.boundary_for(p.name, p.type) for p in patches)
+        if bc.kind == "waterLevelOutlet"
+    ]
+    if not levels:
+        return None
+    return {"dimensions": "[0 1 0 0 0 0 0]", "value": levels[0]}
+
+
+def wave_properties(project: Project, patches: Sequence[Patch]) -> dict | None:
+    """Settings of the wave maker and of absorbing boundaries, keyed by boundary name."""
+    waves: dict = {}
+    for patch in patches:
+        bc = project.boundary_for(patch.name, patch.type)
+        if bc.kind == "waveInlet":
+            waves[patch.name] = {
+                "alpha": WATER,
+                "waveModel": bc.wave_model,
+                "nPaddle": 1,
+                "waveHeight": bc.wave_height,
+                "waveAngle": 0.0,
+                "rampTime": bc.wave_period,
+                "activeAbsorption": True,
+                "wavePeriod": bc.wave_period,
+            }
+        elif bc.kind == "waveOutlet":
+            waves[patch.name] = {"alpha": WATER, "waveModel": "shallowWaterAbsorption", "nPaddle": 1}
+    return waves or None

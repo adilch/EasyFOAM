@@ -51,6 +51,9 @@ KIND_LABELS = {
     "flowRateInlet": "Inlet by flow rate",
     "freeOutflow": "Free outflow",
     "atmosphere": "Open to the atmosphere",
+    "waterLevelOutlet": "Outlet at a water level",
+    "waveInlet": "Wave maker",
+    "waveOutlet": "Wave-absorbing outlet",
 }
 KIND_ICONS = {
     "velocityInlet": "arrow-right-to-line",
@@ -61,6 +64,9 @@ KIND_ICONS = {
     "flowRateInlet": "droplet",
     "freeOutflow": "log-out",
     "atmosphere": "wind",
+    "waterLevelOutlet": "ruler",
+    "waveInlet": "activity",
+    "waveOutlet": "arrow-right-from-line",
     "constraint": "flip-horizontal",
 }
 SHAPE_ICONS = {"stl": "shapes", "box": "box", "sphere": "circle", "cylinder": "cylinder"}
@@ -76,6 +82,15 @@ KIND_HINTS = {
     ),
     "freeOutflow": "Whatever arrives here leaves undisturbed. Use it downstream of a weir or spillway.",
     "atmosphere": "Open air at ambient pressure: air can move in and out freely. Use it for the top of an open channel.",
+    "waterLevelOutlet": (
+        "Free-surface flow: water leaves into a tailwater that stands at this height. The pressure is "
+        "hydrostatic below the level, so the downstream depth is held instead of draining away."
+    ),
+    "waveInlet": (
+        "Free-surface flow: makes regular waves of this height and period on the still water in front of it. "
+        "Fill the domain with water to the still-water level first."
+    ),
+    "waveOutlet": "Free-surface flow: lets waves leave without reflecting them back.",
     "constraint": "This condition is fixed by the patch type chosen in the mesh.",
 }
 FACE_TYPES = ("patch", "wall", "symmetry", "empty")
@@ -139,7 +154,7 @@ class GeometryPanel(Panel):
         self.shape_list = QListWidget()
         self.shape_list.currentRowChanged.connect(self._show_shape)
 
-        import_button = QPushButton(icon("import"), " Import STL")
+        import_button = QPushButton(icon("import"), " Import")
         import_button.clicked.connect(self._import_stl)
         add_button = QPushButton(icon("plus"), " Add")
         menu = QMenu(add_button)
@@ -150,7 +165,7 @@ class GeometryPanel(Panel):
         remove_button.clicked.connect(self.remove_selected)
         rename_button = QPushButton(icon("pencil"), " Rename")
         rename_button.clicked.connect(self._ask_new_name)
-        import_button.setToolTip("Bring in a surface from an STL file (ASCII or binary).")
+        import_button.setToolTip("Bring in geometry from an STL, STEP, IGES or BREP file.")
         add_button.setToolTip("Add a simple shape: box, sphere or cylinder.")
         rename_button.setToolTip("The shape's name becomes the name of its boundary in the mesh.")
         buttons = QHBoxLayout()
@@ -383,24 +398,47 @@ class GeometryPanel(Panel):
         self.apply(lambda: self.project.shapes.remove(shape))
         self._refill(select=row)
 
+    def import_file(self, path: Path, unit: str = "m", faces_as_regions: bool = False) -> None:
+        """Add a geometry file (STL, STEP, IGES, BREP) drawn in the given length unit."""
+        if self.project is None or self.case_dir is None:
+            return
+        options = {"faces_as_regions": True} if faces_as_regions else {}
+        shape = geometry.import_geometry(self.case_dir, Path(path), unit=unit, **options)
+
+        def add():
+            self.project.shapes[:] = [s for s in self.project.shapes if s.name != shape.name]
+            self.project.shapes.append(shape)
+
+        self.apply(add)
+        self._refill(select=len(self.project.shapes) - 1)
+
     def _import_stl(self) -> None:
         if self.project is None or self.case_dir is None:
             return
-        files, _ = QFileDialog.getOpenFileNames(self, "Import STL", "", "STL surfaces (*.stl *.STL)")
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Import geometry", "",
+            "Geometry (*.stl *.step *.stp *.iges *.igs *.brep);;STL surfaces (*.stl);;CAD (*.step *.stp *.iges *.igs *.brep)",
+        )  # fmt: skip
+        if not files:
+            return
+        units = {"metres": "m", "millimetres": "mm", "centimetres": "cm", "inches": "in"}
+        choice, ok = QInputDialog.getItem(self, "Import geometry", "The file is drawn in", list(units), 0, False)
+        if not ok:
+            return
         for file in files:
+            per_face = False
+            if Path(file).suffix.lower() in geometry.CAD_SUFFIXES:
+                answer = QMessageBox.question(
+                    self, "Import geometry",
+                    f"Keep each face of {Path(file).name} as its own boundary?\n\n"
+                    "Choose Yes if single faces will be inlets or outlets (internal flow). "
+                    "Choose No to treat the whole part as one wall.",
+                )  # fmt: skip
+                per_face = answer == QMessageBox.StandardButton.Yes
             try:
-                shape = geometry.import_stl(self.case_dir, Path(file))
-            except (ValueError, OSError) as exc:
-                QMessageBox.warning(self, "Import STL", str(exc))
-                continue
-
-            def add(shape=shape):
-                self.project.shapes[:] = [s for s in self.project.shapes if s.name != shape.name]
-                self.project.shapes.append(shape)
-
-            self.apply(add)
-        if files:
-            self._refill(select=len(self.project.shapes) - 1)
+                self.import_file(Path(file), units[choice], per_face)
+            except (ValueError, OSError, RuntimeError) as exc:
+                QMessageBox.warning(self, "Import geometry", str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -857,6 +895,15 @@ class BoundaryPanel(Panel):
         self.flow_rate.setToolTip("Volume flow rate through this boundary in cubic metres per second.")
         self.water_fraction = FloatEdit(1.0)
         self.water_fraction.setToolTip("Free-surface flow: 1 if water enters here, 0 if air enters.")
+        self.level = FloatEdit()
+        self.level.setToolTip("Height of the tailwater surface, measured upwards (against gravity) in the mesh's coordinates.")
+        self.wave_height = FloatEdit(0.05)
+        self.wave_height.setToolTip("Wave height from trough to crest.")
+        self.wave_period = FloatEdit(2.0)
+        self.wave_period.setToolTip("Time between two wave crests.")
+        self.wave_model = QComboBox()
+        self.wave_model.addItem("Stokes 2nd order (most regular waves)", "StokesII")
+        self.wave_model.addItem("Stokes 1st order (small, linear waves)", "StokesI")
 
         self.form = QFormLayout()
         self.form.addRow("Condition", self.kind)
@@ -864,6 +911,10 @@ class BoundaryPanel(Panel):
         self.form.addRow("Pressure p/ρ [m²/s²]", self.pressure)
         self.form.addRow("Flow rate [m³/s]", self.flow_rate)
         self.form.addRow("Share of water (0–1)", self.water_fraction)
+        self.form.addRow("Water level [m]", self.level)
+        self.form.addRow("Wave height [m]", self.wave_height)
+        self.form.addRow("Wave period [s]", self.wave_period)
+        self.form.addRow("Wave theory", self.wave_model)
         self.form.addRow(self.hint)
         self.details = QGroupBox("Selected boundary")
         self.details.setLayout(self.form)
@@ -879,6 +930,10 @@ class BoundaryPanel(Panel):
         self.pressure.changed.connect(lambda _v: self._edited())
         self.flow_rate.changed.connect(lambda _v: self._edited())
         self.water_fraction.changed.connect(lambda _v: self._edited())
+        self.level.changed.connect(lambda _v: self._edited())
+        self.wave_height.changed.connect(lambda _v: self._edited())
+        self.wave_period.changed.connect(lambda _v: self._edited())
+        self.wave_model.currentIndexChanged.connect(lambda _i: self._edited())
 
     def load(self, project: Project, patches: Sequence[Patch], from_mesh: bool = False) -> None:
         self.project, self.patches = project, list(patches)
@@ -924,6 +979,10 @@ class BoundaryPanel(Panel):
             self.pressure.set_value(bc.pressure)
             self.flow_rate.set_value(bc.flow_rate)
             self.water_fraction.set_value(bc.water_fraction)
+            self.level.set_value(bc.level)
+            self.wave_height.set_value(bc.wave_height)
+            self.wave_period.set_value(bc.wave_period)
+            self.wave_model.setCurrentIndex(max(0, self.wave_model.findData(bc.wave_model)))
         self._show_rows(bc.kind)
 
     def _show_rows(self, kind: str) -> None:
@@ -932,6 +991,9 @@ class BoundaryPanel(Panel):
         self.form.setRowVisible(self.flow_rate, kind == "flowRateInlet")
         multiphase = self.project is not None and SOLVERS.get(self.project.physics.solver, SOLVERS["simpleFoam"]).multiphase
         self.form.setRowVisible(self.water_fraction, kind == "velocityInlet" and multiphase)
+        self.form.setRowVisible(self.level, kind == "waterLevelOutlet")
+        for widget in (self.wave_height, self.wave_period, self.wave_model):
+            self.form.setRowVisible(widget, kind == "waveInlet")
         self.hint.setText(KIND_HINTS.get(kind, ""))
 
     def _edited(self) -> None:
@@ -944,6 +1006,8 @@ class BoundaryPanel(Panel):
             self.project.boundaries[patch.name] = Boundary(
                 kind=kind, velocity=self.velocity.value(), pressure=self.pressure.value(),
                 flow_rate=self.flow_rate.value(), water_fraction=self.water_fraction.value(),
+                level=self.level.value(), wave_height=self.wave_height.value(),
+                wave_period=self.wave_period.value(), wave_model=self.wave_model.currentData(),
             )
 
         self.apply(edit)
@@ -1070,9 +1134,22 @@ class RunPanel(Panel):
         probe_box = QGroupBox("Probes")
         probe_box.setLayout(probes)
 
+        self.flow_monitors = QLineEdit()
+        self.flow_monitors.setPlaceholderText("boundary names, e.g. outlet")
+        self.flow_monitors.setToolTip(
+            "The volume flow through these boundaries is recorded every step (water only in free-surface runs). "
+            "Positive values leave the domain."
+        )
+        self.flow_monitors.editingFinished.connect(self._flows_edited)
+        flows = QFormLayout()
+        flows.addRow("Through", self.flow_monitors)
+        flow_box = QGroupBox("Discharge")
+        flow_box.setLayout(flows)
+
         layout.addWidget(box)
         layout.addWidget(force_box)
         layout.addWidget(probe_box)
+        layout.addWidget(flow_box)
         layout.addWidget(_hint("Running replaces earlier results of this case."))
         layout.addWidget(self.issues)
         layout.addLayout(buttons)
@@ -1113,6 +1190,7 @@ class RunPanel(Panel):
             monitor = project.forces
             self.forces_on.setChecked(monitor.enabled)
             self.force_patches.setText(", ".join(monitor.patches))
+            self.flow_monitors.setText(", ".join(project.flow_monitors))
             self.ref_area.set_value(monitor.ref_area)
             self.ref_length.set_value(monitor.ref_length)
             self.ref_velocity.set_value(monitor.ref_velocity)
@@ -1208,6 +1286,11 @@ class RunPanel(Panel):
             self.project.probes[item.row()][item.column()] = value
 
         self.apply(edit)
+
+    def _flows_edited(self) -> None:
+        names = [n.strip() for n in self.flow_monitors.text().split(",") if n.strip()]
+        if self.project is not None and names != self.project.flow_monitors:
+            self.apply(lambda: setattr(self.project, "flow_monitors", names))
 
     def _patches_edited(self) -> None:
         names = [n.strip() for n in self.force_patches.text().split(",") if n.strip()]

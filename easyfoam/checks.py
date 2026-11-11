@@ -71,8 +71,19 @@ def project_issues(project: Project, patches: Sequence[Patch], has_mesh: bool) -
             )
 
     if patches:
-        inlets = [b for b in chosen if b.kind in ("velocityInlet", "flowRateInlet")]
-        outlets = [b for b in chosen if b.kind in ("pressureOutlet", "freeOutflow", "atmosphere")]
+        inlets = [b for b in chosen if b.kind in ("velocityInlet", "flowRateInlet", "waveInlet")]
+        outlets = [
+            b for b in chosen
+            if b.kind in ("pressureOutlet", "freeOutflow", "atmosphere", "waterLevelOutlet", "waveOutlet")
+        ]  # fmt: skip
+        if not multiphase:
+            for patch, b in zip(patches, chosen):
+                if b.kind in ("waterLevelOutlet", "waveInlet", "waveOutlet"):
+                    issues.append(
+                        Issue("Boundaries", "error",
+                              f"The condition on '{patch.name}' only exists in free-surface flow: "
+                              "choose a free-surface flow type in Physics, or another condition here.")  # fmt: skip
+                    )
         if inlets and not outlets:
             issues.append(
                 Issue("Boundaries", "error",
@@ -82,6 +93,7 @@ def project_issues(project: Project, patches: Sequence[Patch], has_mesh: bool) -
         driven = (
             any(_moving(b.velocity) for b in chosen if b.kind in ("velocityInlet", "movingWall"))
             or any(b.flow_rate != 0 for b in chosen if b.kind == "flowRateInlet")
+            or any(b.kind == "waveInlet" for b in chosen)
             or (multiphase and bool(project.physics.water_regions))  # water falling under gravity
         )
         if not driven:

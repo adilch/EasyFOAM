@@ -6,7 +6,7 @@ Geometry, meshing, case set-up, running and results in one window, driving
 
 ![EasyFOAM workspace](docs/images/Forces.png)
 
-Status: **v0.4, alpha.** The whole loop works for incompressible flow around
+Status: **v0.5, alpha.** The whole loop works for incompressible flow around
 bodies, inside pipes and ducts, and with a free water surface (weirs, spillways,
 dam breaks); see
 [what works](#what-works-today) and the [roadmap](docs/roadmap.md).
@@ -37,11 +37,11 @@ Good free tools already exist: [BARAM](https://github.com/nextfoam/baram)
 
 | | |
 |---|---|
-| Geometry | STL import (ASCII and binary), with each named solid of an STL usable as a wall or an opening; box, sphere, cylinder primitives; shapes as solid surfaces or refinement regions |
+| Geometry | STEP / IGES / BREP import (optional `gmsh` package), length unit chosen on import; STL import (ASCII and binary), with each named solid of an STL usable as a wall or an opening; box, sphere, cylinder primitives; shapes as solid surfaces or refinement regions |
 | Mesh | Base mesh box with named faces; automatic sizing (wind tunnel, or snug box for internal flow); snappyHexMesh with surface refinement, refinement regions and by distance, feature edges and boundary layers; fluid outside or inside a shape; checkMesh report |
-| Free surface | Water and air with a free surface (interFoam): gravity, surface tension, water placed as boxes or filled to a level, time step that follows the water surface |
+| Free surface | Water and air with a free surface (interFoam): gravity, surface tension, water placed as boxes or filled to a level, time step that follows the water surface; a sharper-interface variant (interIsoFoam); regular waves with a wave maker and an absorbing outlet; discharge and water-depth monitors |
 | Physics | Incompressible flow, steady (simpleFoam) and transient (pimpleFoam); laminar, k-epsilon, realizable k-epsilon, k-omega SST, Spalart-Allmaras; potential-flow start; small fluid list |
-| Boundaries | Velocity inlet, inlet by flow rate (follows the water level in free-surface flow), pressure outlet, free outflow, open atmosphere, wall, moving wall, slip, symmetry / empty; sensible defaults from patch names and types |
+| Boundaries | Velocity inlet, inlet by flow rate (follows the water level in free-surface flow), pressure outlet, free outflow, outlet at a tailwater level, wave maker, wave-absorbing outlet, open atmosphere, wall, moving wall, slip, symmetry / empty; sensible defaults from patch names and types |
 | Run | Serial or parallel (automatic decomposition and reconstruction); live residual plot; convergence target; drag and lift coefficients with a live plot and forces in newtons; probes; frontal-area estimate; graceful stop and continue; the final state is always saved; log |
 | Results | Built-in 3D view (mesh, slices, surface colouring, the water surface coloured by speed); y+, wall shear stress, vorticity and Q computed on demand; one click to ParaView |
 
@@ -79,7 +79,7 @@ uv pip install --python .venv/Scripts/python.exe -e ".[gui,dev]"
 ```
 
 (on Linux the interpreter is `.venv/bin/python`), or with plain pip:
-`pip install -e ".[gui]"`.
+`pip install -e ".[gui]"`. Add the `cad` extra (`.[gui,cad]`) to import STEP and IGES files.
 
 ## Use
 
@@ -90,7 +90,7 @@ Desktop application:
 ```
 
 Then *File > New from example* (air flow past a sphere, laminar flow in a pipe,
-the lid-driven cavity, flow over a weir, or a dam break), press **Generate mesh** (F5) and **Run** (F6). The steps on the left go in order: Geometry, Mesh,
+the lid-driven cavity, flow over a weir, a dam break, or waves in a flume), press **Generate mesh** (F5) and **Run** (F6). The steps on the left go in order: Geometry, Mesh,
 Physics, Boundaries, Run, Results.
 
 Command line, same operations:
@@ -116,10 +116,14 @@ against the exact 3.2 m²/s² per metre.
 ### Flow over a weir
 
 The weir example sends 0.05 m³/s over a 0.5 m wide, 0.25 m thick, 0.51 m high weir. After 20 s the flow is
-steady (outflow within 0.5 % of inflow) and the water stands 0.169 m above the crest. The ideal
-broad-crested weir formula gives 0.151 m; a real square-edged weir has losses, which puts the simulated
-value (an implied discharge coefficient of about 0.85) in the expected range. The example mesh is coarse
+steady: the discharge monitor shows 0.0488 m³/s leaving and the gauge in the reservoir reads a depth of
+0.669 m, which is 0.159 m above the crest (a second estimate from the water volume gives 0.169 m; one
+cell is 0.03 m high). The ideal broad-crested weir formula gives 0.151 m; a real square-edged weir has
+losses, which puts the simulated head a little above it, as expected. The example mesh is coarse
 (20,000 cells, about five cells over the head), so treat this as a plausibility check, not a calibration.
+
+The wave-flume example asks for 0.04 m waves with a 1.5 s period and measures 0.038 m and 0.037 m at its
+two gauges, with the mean level unchanged and no water piling up at the absorbing end.
 
 ![Flow over a weir](docs/images/Weir.png)
 

@@ -67,6 +67,7 @@ EXAMPLE_LABELS = {
     "pipe": "Example: laminar flow in a pipe",
     "weir": "Example: flow over a weir (free surface)",
     "dambreak": "Example: dam break (free surface)",
+    "waves": "Example: waves in a flume (free surface)",
     "cavity": "Example: lid-driven cavity",
 }
 RESIDUAL_COLOURS = ["#4c78a8", "#f58518", "#54a24b", "#e45756", "#b279a2", "#72b7b2", "#9d755d", "#eeca3b"]
@@ -87,6 +88,7 @@ class MainWindow(QMainWindow):
         self._curves: dict = {}
         self._probe_curves: dict = {}
         self._stop_requested = False
+        self._flow_curves: dict = {}
         self._force_curves: dict = {}
         self._pending_field = ""
         self._ticks = 0
@@ -206,6 +208,8 @@ class MainWindow(QMainWindow):
         self.log.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.plot = None
         self.probe_plot = None
+        self.flow_plot = None
+        self.flow_label = QLabel("List boundaries under Discharge in the Run step to record the flow through them.")
         self.force_plot = None
         self.force_label = QLabel("Switch on the force monitor in the Run step to see drag and lift here.")
         self.bottom = QTabWidget()
@@ -221,6 +225,7 @@ class MainWindow(QMainWindow):
             self.plot.addLegend(offset=(-10, 10))
             self.bottom.addTab(self.plot, "Residuals")
             self.force_plot = pg.PlotWidget()
+            self.force_plot.getAxis("left").enableAutoSIPrefix(False)  # plain numbers in the stated unit
             self.force_plot.showGrid(x=True, y=True, alpha=0.25)
             self.force_plot.setLabel("left", "Coefficient")
             self.force_plot.setLabel("bottom", "Iteration / time")
@@ -232,11 +237,24 @@ class MainWindow(QMainWindow):
             holder_layout.addWidget(self.force_plot, 1)
             self.bottom.addTab(holder, "Forces")
             self.probe_plot = pg.PlotWidget()
+            self.probe_plot.getAxis("left").enableAutoSIPrefix(False)  # plain numbers in the stated unit
             self.probe_plot.showGrid(x=True, y=True, alpha=0.25)
             self.probe_plot.setLabel("left", "Pressure p/ρ at the probes [m²/s²]")
             self.probe_plot.setLabel("bottom", "Iteration / time")
             self.probe_plot.addLegend(offset=(-10, 10))
             self.bottom.addTab(self.probe_plot, "Probes")
+            self.flow_plot = pg.PlotWidget()
+            self.flow_plot.getAxis("left").enableAutoSIPrefix(False)  # plain numbers in the stated unit
+            self.flow_plot.showGrid(x=True, y=True, alpha=0.25)
+            self.flow_plot.setLabel("left", "Discharge [m³/s], positive = leaving")
+            self.flow_plot.setLabel("bottom", "Iteration / time")
+            self.flow_plot.addLegend(offset=(-10, 10))
+            flow_holder = QWidget()
+            flow_layout = QVBoxLayout(flow_holder)
+            flow_layout.setContentsMargins(6, 4, 0, 0)
+            flow_layout.addWidget(self.flow_label)
+            flow_layout.addWidget(self.flow_plot, 1)
+            self.bottom.addTab(flow_holder, "Discharge")
         except ImportError:  # the window still works without live plots
             pass
         self.bottom.addTab(self.log, "Log")
@@ -298,7 +316,7 @@ class MainWindow(QMainWindow):
         file_menu = self.menuBar().addMenu("&File")
         file_menu.addAction(self.new_action)
         examples = file_menu.addMenu(icon("book-open"), "New from example")
-        for key in ("sphere", "pipe", "cavity", "weir", "dambreak"):
+        for key in ("sphere", "pipe", "cavity", "weir", "dambreak", "waves"):
             examples.addAction(icon(EXAMPLE_CARDS[key][0]), EXAMPLE_LABELS[key],
                                lambda k=key: self._new_project_dialog(k))  # fmt: skip
         file_menu.addAction(self.open_action)
@@ -854,6 +872,9 @@ class MainWindow(QMainWindow):
         self._probe_curves = {}
         if self.probe_plot is not None:
             self.probe_plot.clear()
+        self._flow_curves = {}
+        if self.flow_plot is not None:
+            self.flow_plot.clear()
 
     def _update_forces(self) -> None:
         """Refresh the force-coefficient plot and the drag / lift read-out."""
@@ -885,23 +906,44 @@ class MainWindow(QMainWindow):
         )
 
     def _update_probes(self) -> None:
-        """Refresh the pressure history at the probe points."""
-        if self.probe_plot is None or self.case_dir is None:
+        """Refresh the probe plot and the discharge plot.
+
+        In free-surface runs the probe points act as gauges and the plot shows the water depth
+        there; otherwise it shows the pressure.
+        """
+        if self.case_dir is None or self.project is None:
             return
         import pyqtgraph as pg
 
+        from easyfoam.foam.monitors import read_discharge, read_water_levels
         from easyfoam.foam.probes import read_probes
+        from easyfoam.solvers import SOLVERS
 
-        history = read_probes(self.case_dir)
-        pressure = history.get("p") or history.get("p_rgh")
-        if not pressure:
-            return
-        times, series = pressure
-        for index, values in enumerate(series):
-            if index not in self._probe_curves:
-                pen = pg.mkPen(RESIDUAL_COLOURS[index % len(RESIDUAL_COLOURS)], width=2)
-                self._probe_curves[index] = self.probe_plot.plot(name=f"probe {index + 1}", pen=pen)
-            self._probe_curves[index].setData(times, values)
+        if self.probe_plot is not None:
+            spec = SOLVERS.get(self.project.physics.solver)
+            if spec is not None and spec.multiphase:
+                times, series = read_water_levels(self.case_dir)
+                label, name = "Water depth at the gauges [m]", "gauge"
+            else:
+                times, series = read_probes(self.case_dir).get("p", ([], []))
+                label, name = "Pressure p/ρ at the probes [m²/s²]", "probe"
+            self.probe_plot.setLabel("left", label)
+            for index, values in enumerate(series):
+                if index not in self._probe_curves:
+                    pen = pg.mkPen(RESIDUAL_COLOURS[index % len(RESIDUAL_COLOURS)], width=2)
+                    self._probe_curves[index] = self.probe_plot.plot(name=f"{name} {index + 1}", pen=pen)
+                self._probe_curves[index].setData(times, values)
+
+        if self.flow_plot is not None:
+            latest = []
+            for index, (patch, (times, values)) in enumerate(read_discharge(self.case_dir).items()):
+                if patch not in self._flow_curves:
+                    pen = pg.mkPen(RESIDUAL_COLOURS[index % len(RESIDUAL_COLOURS)], width=2)
+                    self._flow_curves[patch] = self.flow_plot.plot(name=patch, pen=pen)
+                self._flow_curves[patch].setData(times, values)
+                latest.append(f"{patch}: {values[-1]:.4g} m³/s")
+            if latest:
+                self.flow_label.setText("    ".join(latest) + f"    (at {times[-1]:g})")
 
     def _load_residual_history(self) -> None:
         """Plot the residuals of the last run from its log file, if there is one."""

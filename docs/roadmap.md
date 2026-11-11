@@ -44,7 +44,7 @@ Still open:
 - checkMesh result shown in 3D (bad cells highlighted).
 - Renaming single regions of an STL.
 
-## v0.4 - free surface for hydraulic structures (this version)
+## v0.4 - free surface for hydraulic structures (done)
 
 Done:
 
@@ -57,28 +57,40 @@ Done:
 - Water-surface view coloured by speed; share of water in the domain while running.
 - Examples: flow over a weir (compared with the weir formula) and a dam break.
 
+## v0.5 - hydraulics completed, CAD import (this version)
+
+Done:
+
+- Outlet at a fixed tailwater level (hydrostatic below the level).
+- Regular waves: wave maker with Stokes 1st or 2nd order theory and a
+  wave-absorbing outlet; wave-flume example.
+- Monitors: discharge through chosen boundaries (water only in free-surface
+  runs) and water depth at the probe points, both with live plots.
+- Sharper interface solver (interIsoFoam) as a second free-surface flow type.
+- STEP / IGES / BREP import through the optional gmsh package, with every CAD
+  face optionally kept as its own boundary; length unit asked on import.
+
 Still open for hydraulics:
 
-- Outlet with a fixed tailwater level; wave generation and absorption.
-- Monitors for discharge through a boundary and for the water level at a point.
-- Sharper interface capturing (interIsoFoam); sediment and air entrainment are out of scope for now.
-- STEP import for real spillway geometry (STL works today).
+- Irregular (spectrum) and solitary waves; wave direction.
+- Several tailwater levels in one case (one reference level is supported).
+- Sediment transport and air entrainment (out of scope for now).
 
-## v0.4.x - heat
+## Next - heat
 
 - Buoyant heat transfer (buoyantSimpleFoam / buoyantPimpleFoam), temperature
   and heat-flux boundaries, thermophysical material database.
 - Passive scalar transport.
 
-## v0.5 - more ways in and out
+## v0.6 - more ways in and out
 
-- STEP / IGES import (through OCP or gmsh), units on import, STL check and repair.
+- STL check and repair; geometry booleans.
 - Mesh import: Fluent, Gmsh, existing OpenFOAM cases (read boundary and fields).
 - Native Windows back-ends: ESI MinGW build and blueCFD-Core.
 - Foundation-line (openfoam.org) dictionary dialect.
 - Windows installer.
 
-## v0.6 - rotating machinery and regions
+## v0.7 - rotating machinery and regions
 
 - Cell zones, MRF, porous zones.
 - Cyclic / AMI interfaces, sliding mesh.

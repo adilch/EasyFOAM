@@ -17,7 +17,7 @@ def test_open_boundaries_offer_the_hydraulic_conditions(qapp):
     panel = BoundaryPanel()
     panel.load(project, [Patch("inlet", "patch", 1, 0)])
     kinds = [panel.kind.itemData(i) for i in range(panel.kind.count())]
-    assert kinds == ["velocityInlet", "flowRateInlet", "pressureOutlet", "freeOutflow", "atmosphere", "slip"]
+    assert kinds[:6] == ["velocityInlet", "flowRateInlet", "pressureOutlet", "freeOutflow", "atmosphere", "slip"]
     select(panel.kind, "flowRateInlet")
     type_into(panel.flow_rate, "0.05")
     assert project.boundaries["inlet"].kind == "flowRateInlet"

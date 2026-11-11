@@ -13,6 +13,8 @@ from easyfoam.runtime import Step
 from easyfoam.solvers import POST_FUNCTIONS, solver_spec, turbulence_fields
 
 C_MU = 0.09
+#: kinds that behave like a pressure outlet in single-fluid flow
+OUTLET_LIKE = ("pressureOutlet", "freeOutflow", "waterLevelOutlet", "waveOutlet")
 MIN_SPEED = 0.1  # m/s, keeps turbulence quantities positive for a flow starting at rest
 TRANSPORTED = '"(U|k|epsilon|omega|nuTilda)"'
 
@@ -89,14 +91,14 @@ def _entry(field: str, patch: Patch, bc: Boundary, project: Project, internal: d
             return {"type": "flowRateInletVelocity", "volumetricFlowRate": bc.flow_rate, "value": "uniform (0 0 0)"}
         if bc.kind == "atmosphere":
             return {"type": "pressureInletOutletVelocity", "value": "uniform (0 0 0)"}
-        if bc.kind in ("pressureOutlet", "freeOutflow"):
+        if bc.kind in OUTLET_LIKE:
             zero = "uniform (0 0 0)"
             return {"type": "inletOutlet", "inletValue": zero, "value": zero}
         return {"type": "noSlip"}
     if field == "p":
         if bc.kind == "atmosphere":
             return {"type": "totalPressure", "p0": "uniform 0"}
-        if bc.kind in ("pressureOutlet", "freeOutflow"):
+        if bc.kind in OUTLET_LIKE:
             return {"type": "fixedValue", "value": f"uniform {float(bc.pressure)!r}"}
         return {"type": "zeroGradient"}
 
@@ -204,6 +206,34 @@ def _functions(project: Project, patches: Sequence[Patch]) -> dict:
             "fields": ["p_rgh", "U", freesurface.WATER] if multiphase else ["p", "U"],
             "probeLocations": [list(point) for point in project.probes],
         }
+        if multiphase:
+            # the same points also report the water level above the bed
+            functions["waterLevel"] = {
+                "type": "interfaceHeight",
+                "libs": ["fieldFunctionObjects"],
+                "writeControl": "timeStep",
+                "writeInterval": 1,
+                "log": False,
+                "alpha": freesurface.WATER,
+                "locations": [list(point) for point in project.probes],
+            }
+    existing = {p.name for p in patches}
+    for name in project.flow_monitors:
+        if name in existing:
+            functions[f"flow_{name}"] = {
+                "type": "surfaceFieldValue",
+                "libs": ["fieldFunctionObjects"],
+                "writeControl": "timeStep",
+                "writeInterval": 1,
+                "log": False,
+                "writeFields": False,
+                "regionType": "patch",
+                "name": name,
+                # the volume flux, counting only the water where there is a free surface
+                "operation": "weightedSum" if multiphase else "sum",
+                **({"weightField": freesurface.WATER} if multiphase else {}),
+                "fields": ["phi"],
+            }
     if on:
         functions["forceCoeffs"] = {
             "type": "forceCoeffs",
@@ -352,6 +382,14 @@ def gravity_dict(project: Project) -> dict:
 
 def set_fields_dict(project: Project) -> dict:
     return freesurface.set_fields_dict(project)
+
+
+def href_dict(project: Project, patches: Sequence[Patch]) -> dict | None:
+    return freesurface.href_dict(project, patches)
+
+
+def wave_properties(project: Project, patches: Sequence[Patch]) -> dict | None:
+    return freesurface.wave_properties(project, patches)
 
 
 def turbulence_properties(project: Project) -> dict:

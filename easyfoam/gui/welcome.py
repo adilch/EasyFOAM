@@ -33,6 +33,7 @@ EXAMPLES = {
     "cavity": ("flow-cavity", "Lid-driven cavity", "A stirred box that runs in seconds"),
     "weir": ("flow-weir", "Flow over a weir", "Free surface in an open channel"),
     "dambreak": ("flow-dam", "Dam break", "A water column collapses in a tank"),
+    "waves": ("waves", "Waves in a flume", "Wave maker and absorbing outlet"),
 }
 
 
@@ -73,7 +74,7 @@ class WelcomePage(QWidget):
         self.example_buttons: dict[str, QPushButton] = {}
         cards = QGridLayout()
         cards.setSpacing(12)
-        for index, key in enumerate(("sphere", "pipe", "cavity", "weir", "dambreak")):
+        for index, key in enumerate(("sphere", "pipe", "cavity", "weir", "dambreak", "waves")):
             name, label, text = EXAMPLES[key]
             card = QPushButton(icon(name, ACCENT, 34), f"  {label}\n  {text}")
             card.setIconSize(QSize(34, 34))

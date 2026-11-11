@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import math
 import re
-import shutil
 import struct
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +15,9 @@ from easyfoam.model import Project, Shape
 _VERTEX = re.compile(rb"vertex\s+(\S+)\s+(\S+)\s+(\S+)")
 _SOLID = re.compile(rb"^[ \t]*solid\b[ \t]*([^\r\n]*)", re.MULTILINE)
 _SOLID_LINE = re.compile(rb"^[ \t]*(end)?solid\b[ \t]*([^\r\n]*)", re.MULTILINE)
+#: length units a geometry file may be in -> factor to metres
+UNITS = {"m": 1.0, "cm": 0.01, "mm": 0.001, "in": 0.0254}
+CAD_SUFFIXES = (".step", ".stp", ".iges", ".igs", ".brep")
 _BINARY_RECORD = np.dtype([("normal", "<f4", 3), ("points", "<f4", (3, 3)), ("attr", "<u2")])
 
 
@@ -85,8 +88,25 @@ def _rename_solids(data: bytes) -> tuple[bytes, list[str]]:
     return _SOLID_LINE.sub(replace, data), names
 
 
-def import_stl(case_dir: Path, source: Path, name: str | None = None) -> Shape:
-    """Copy an STL into ``constant/triSurface`` and return the shape describing it."""
+def _scale_stl(data: bytes, factor: float) -> bytes:
+    """Multiply every coordinate of an ASCII or binary STL by a factor."""
+    count = _binary_count(data)
+    if count:
+        records = np.frombuffer(data, dtype=_BINARY_RECORD, count=count, offset=84).copy()
+        records["points"] *= factor
+        return data[:84] + records.tobytes()
+
+    def scaled(match: re.Match) -> bytes:
+        return b"vertex " + b" ".join(repr(float(g) * factor).encode() for g in match.groups())
+
+    return _VERTEX.sub(scaled, data)
+
+
+def import_stl(case_dir: Path, source: Path, name: str | None = None, scale: float = 1.0) -> Shape:
+    """Copy an STL into ``constant/triSurface`` (converted to metres) and return its shape.
+
+    ``scale`` is the size of the file's length unit in metres (see :data:`UNITS`).
+    """
     source = Path(source)
     stl_points(source)  # fail early on files that are not STL
     name = safe_name(name or source.stem)
@@ -95,15 +115,64 @@ def import_stl(case_dir: Path, source: Path, name: str | None = None) -> Shape:
     target = folder / f"{name}.stl"
     data = source.read_bytes()
     regions: list[str] = []
-    if _binary_count(data):
-        shutil.copyfile(source, target)
-    else:
+    if not _binary_count(data):
         data, regions = _rename_solids(data)
-        target.write_bytes(data)
+    if scale != 1.0:
+        data = _scale_stl(data, scale)
+    target.write_bytes(data)
     shape = Shape(name=name, kind="stl", file=f"{name}.stl")
     if len(regions) > 1:
         shape.regions = {region: "wall" for region in regions}
     return shape
+
+
+def import_cad(
+    case_dir: Path,
+    source: Path,
+    name: str | None = None,
+    scale: float = 1.0,
+    faces_as_regions: bool = False,
+) -> Shape:
+    """Import a STEP, IGES or BREP file by turning its faces into a triangulated surface.
+
+    With ``faces_as_regions`` every CAD face becomes its own region, so single faces can be
+    made inlets or outlets. Needs the optional ``gmsh`` package.
+    """
+    try:
+        import gmsh
+    except ImportError as exc:
+        raise RuntimeError(
+            "Reading STEP / IGES files needs the optional gmsh package. Install it with:  pip install gmsh"
+        ) from exc
+    source = Path(source)
+    name = safe_name(name or source.stem)
+    with tempfile.TemporaryDirectory() as folder:
+        surface = Path(folder) / f"{name}.stl"
+        gmsh.initialize(interruptible=False)
+        try:
+            gmsh.option.setNumber("General.Terminal", 0)
+            gmsh.open(str(source))
+            x0, y0, z0, x1, y1, z1 = gmsh.model.getBoundingBox(-1, -1)
+            diagonal = math.dist((x0, y0, z0), (x1, y1, z1)) or 1.0
+            gmsh.option.setNumber("Mesh.MeshSizeMax", diagonal / 15.0)
+            gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 24)  # triangles around a full circle
+            gmsh.option.setNumber("Mesh.Binary", 0)
+            gmsh.option.setNumber("Mesh.StlOneSolidPerSurface", 1 if faces_as_regions else 0)
+            gmsh.model.mesh.generate(2)
+            gmsh.write(str(surface))
+        except Exception as exc:
+            raise ValueError(f"{source.name} could not be read as a CAD file: {exc}") from exc
+        finally:
+            gmsh.finalize()
+        return import_stl(case_dir, surface, name, scale)
+
+
+def import_geometry(case_dir: Path, source: Path, name: str | None = None, unit: str = "m", **options) -> Shape:
+    """Import an STL or CAD file given in the named length unit."""
+    source = Path(source)
+    if source.suffix.lower() in CAD_SUFFIXES:
+        return import_cad(case_dir, source, name, UNITS[unit], **options)
+    return import_stl(case_dir, source, name, UNITS[unit])
 
 
 _RAYS = np.array([[0.5371, 0.2113, 0.8166], [-0.5371, -0.2113, -0.8166], [0.2673, -0.8018, 0.5345]])

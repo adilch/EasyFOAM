@@ -19,7 +19,7 @@ from pathlib import Path
 from easyfoam import __version__, casegen
 from easyfoam.examples import EXAMPLES
 from easyfoam.foam.boundaryfile import read_boundary
-from easyfoam.geometry import fit_base_mesh, import_stl
+from easyfoam.geometry import UNITS, fit_base_mesh, import_geometry
 from easyfoam.model import PROJECT_FILE, Project
 from easyfoam.pipeline import Job, prepare_mesh, prepare_run, runtime_for
 from easyfoam.runtime import detect_runtimes
@@ -76,7 +76,7 @@ def cmd_new(args) -> int:
 def cmd_import_stl(args) -> int:
     case = Path(args.case)
     project = _load(case)
-    shape = import_stl(case, Path(args.file), args.name)
+    shape = import_geometry(case, Path(args.file), args.name, args.unit)
     project.shapes = [s for s in project.shapes if s.name != shape.name] + [shape]
     if args.fit:
         fit_base_mesh(project, case)
@@ -141,11 +141,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--example", choices=sorted(EXAMPLES), default="empty")
     p.set_defaults(func=cmd_new)
 
-    p = sub.add_parser("import-stl", help="add an STL surface to the project")
+    p = sub.add_parser("import-stl", help="add an STL (or STEP / IGES) geometry file to the project")
     p.add_argument("case")
     p.add_argument("file")
     p.add_argument("--name")
     p.add_argument("--fit", action="store_true", help="size the base mesh around the geometry")
+    p.add_argument("--unit", choices=sorted(UNITS), default="m", help="length unit of the file (default: m)")
     p.set_defaults(func=cmd_import_stl)
 
     for name, func, text in (

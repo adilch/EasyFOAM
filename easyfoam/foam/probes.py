@@ -19,7 +19,8 @@ def parse_probe_file(text: str) -> Series:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        head, _, rest = line.partition(" ")
+        parts = line.split(None, 1)  # any whitespace: OpenFOAM mixes tabs and spaces
+        head, rest = parts[0], (parts[1] if len(parts) > 1 else "")
         try:
             time = float(head)
             vectors = _VECTOR.findall(rest)

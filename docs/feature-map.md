@@ -59,7 +59,7 @@ current version, through WSL or natively), keeps **plain case folders** that
 remain usable by hand, and has no cell or core limits. That is the space
 EasyFOAM aims at. If that distinction does not matter to you, use BARAM.
 
-## Where EasyFOAM stands (v0.4)
+## Where EasyFOAM stands (v0.5)
 
 Legend: done = works and is tested end to end; partial; planned = see roadmap.
 
@@ -71,7 +71,9 @@ Legend: done = works and is tested end to end; partial; planned = see roadmap.
 | Command line for every operation (batch use) | done |
 | STL import (ASCII and binary), box / sphere / cylinder primitives | done |
 | STL regions (named solids) as separate patches, each a wall or an opening | done |
-| STEP / IGES import, booleans, STL repair and splitting | planned |
+| STEP / IGES / BREP import (optional gmsh package), each CAD face usable as its own boundary | done |
+| Length unit on import (m, cm, mm, in) | done |
+| Booleans, STL repair and splitting | planned |
 | Base mesh box with named faces, automatic wind-tunnel or snug internal sizing | done |
 | Internal flow: fluid inside a chosen shape, interior point found automatically for closed surfaces | done |
 | snappyHexMesh: surface refinement, refinement regions and by distance, boundary layers, feature edges | done |
@@ -85,7 +87,11 @@ Legend: done = works and is tested end to end; partial; planned = see roadmap.
 | Initial water regions (boxes, fill to a level); water-surface display; water-volume read-out | done |
 | Hydraulic boundaries: inlet by flow rate that follows the water level, open atmosphere, free outflow | done |
 | Heat transfer, compressible, rotating machinery, particles, combustion | planned |
-| Waves, hydrostatic (water level) outlets, discharge and water-level monitors, isoAdvector | planned |
+| Outlet at a fixed tailwater level | done |
+| Regular waves: wave maker (Stokes 1st / 2nd order) and absorbing outlet | done |
+| Discharge through boundaries and water depth at gauge points, with live plots | done |
+| Sharper interface solver (interIsoFoam) | done |
+| Irregular and solitary waves, sediment, air entrainment | planned |
 | Boundary presets: velocity inlet, pressure outlet, wall, moving wall, slip, symmetry/empty | done |
 | Wider boundary-condition library, time tables, profiles | planned |
 | Material list (air, water, oils) | done (small) |

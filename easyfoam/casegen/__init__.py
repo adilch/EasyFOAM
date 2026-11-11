@@ -65,6 +65,14 @@ def setup_files(project: Project, patches: Sequence[Patch]) -> dict[str, str]:
             "uniformDimensionedVectorField", "g", _setup.gravity_dict(project), location="constant"
         )
         files["system/setFieldsDict"] = foam_file("dictionary", "setFieldsDict", _setup.set_fields_dict(project))
+        reference = _setup.href_dict(project, patches)
+        if reference is not None:
+            files["constant/hRef"] = foam_file(
+                "uniformDimensionedScalarField", "hRef", reference, location="constant"
+            )
+        waves = _setup.wave_properties(project, patches)
+        if waves is not None:
+            files["constant/waveProperties"] = foam_file("dictionary", "waveProperties", waves, location="constant")
     for name, (cls, data) in _setup.field_dicts(project, patches).items():
         files[f"0/{name}"] = foam_file(cls, name, data, location="0")
     return files

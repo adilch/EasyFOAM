@@ -114,8 +114,37 @@ def weir(name: str) -> Project:
     p.boundaries["inlet"] = Boundary(kind="flowRateInlet", flow_rate=0.05)
     p.boundaries["outlet"] = Boundary(kind="freeOutflow")
     p.boundaries["atmosphere"] = Boundary(kind="atmosphere")
+    p.probes = [[1.2, 0.25, 0.3]]  # water-level gauge in the reservoir
+    p.flow_monitors = ["outlet"]
     run = p.run
     run.end_time, run.delta_t, run.write_interval, run.max_courant, run.processors = 20.0, 0.001, 0.5, 0.7, 4
+    return p
+
+
+def waves(name: str) -> Project:
+    """Regular waves travelling down a flume: wave maker at one end, absorbing boundary at the other.
+
+    A thin slice (one cell wide). Still-water depth 0.4 m, wave height 0.04 m, period 1.5 s.
+    Two gauges record the water level.
+    """
+    p = Project(name=name)
+    base = p.mesh.base
+    base.min, base.max, base.cells = [0, 0, 0], [8, 0.05, 0.8], [320, 1, 32]
+    base.faces["xMin"] = BaseFace("inlet", "patch")
+    base.faces["xMax"] = BaseFace("outlet", "patch")
+    base.faces["zMin"] = BaseFace("bed", "wall")
+    base.faces["zMax"] = BaseFace("atmosphere", "patch")
+    base.faces["yMin"] = base.faces["yMax"] = BaseFace("frontAndBack", "empty")
+    p.mesh.snappy = False
+    _water(p)
+    p.physics.turbulence = "laminar"
+    p.physics.water_regions = [[0, 0, 0, 8, 0.05, 0.4]]
+    p.boundaries["inlet"] = Boundary(kind="waveInlet", wave_height=0.04, wave_period=1.5)
+    p.boundaries["outlet"] = Boundary(kind="waveOutlet")
+    p.boundaries["atmosphere"] = Boundary(kind="atmosphere")
+    p.probes = [[2.0, 0.025, 0.2], [6.0, 0.025, 0.2]]
+    run = p.run
+    run.end_time, run.delta_t, run.write_interval, run.max_courant, run.processors = 12.0, 0.001, 0.25, 0.5, 1
     return p
 
 
@@ -126,4 +155,5 @@ EXAMPLES: dict[str, Callable[[str], Project]] = {
     "pipe": pipe,
     "dambreak": dambreak,
     "weir": weir,
+    "waves": waves,
 }

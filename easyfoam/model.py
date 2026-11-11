@@ -21,7 +21,10 @@ FACES = ("xMin", "xMax", "yMin", "yMax", "zMin", "zMax")
 CONSTRAINT_TYPES = ("symmetry", "symmetryPlane", "empty", "wedge", "cyclic", "cyclicAMI", "processor")
 #: boundary kinds the user may pick, per patch type
 KINDS_FOR_TYPE = {
-    "patch": ("velocityInlet", "flowRateInlet", "pressureOutlet", "freeOutflow", "atmosphere", "slip"),
+    "patch": (
+        "velocityInlet", "flowRateInlet", "pressureOutlet", "freeOutflow", "atmosphere", "slip",
+        "waterLevelOutlet", "waveInlet", "waveOutlet",
+    ),  # fmt: skip
     "wall": ("wall", "movingWall", "slip"),
 }
 
@@ -117,6 +120,10 @@ class Boundary:
     pressure: float = 0.0  # kinematic gauge pressure p/rho, m2/s2 (pascals in free-surface flow)
     flow_rate: float = 0.0  # m3/s, for a flow-rate inlet
     water_fraction: float = 1.0  # free-surface flow: share of water in a velocity inlet (0 = air)
+    level: float = 0.0  # m, tailwater height for a water-level outlet (measured against gravity)
+    wave_height: float = 0.05  # m, crest to trough
+    wave_period: float = 2.0  # s
+    wave_model: str = "StokesII"  # StokesI | StokesII
 
 
 @dataclass
@@ -157,6 +164,7 @@ class Project:
     run: RunSettings = field(default_factory=RunSettings)
     forces: ForceMonitor = field(default_factory=ForceMonitor)
     probes: list[list[float]] = field(default_factory=list)  # points where p and U are recorded
+    flow_monitors: list[str] = field(default_factory=list)  # boundaries whose discharge is recorded
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
