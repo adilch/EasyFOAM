@@ -6,7 +6,7 @@ Geometry, meshing, case set-up, running and results in one window, driving
 
 ![EasyFOAM workspace](docs/images/Forces.png)
 
-Status: **v0.5, alpha.** The whole loop works for incompressible flow around
+Status: **v0.6, alpha.** The whole loop works for incompressible flow around
 bodies, inside pipes and ducts, and with a free water surface (weirs, spillways,
 dam breaks); see
 [what works](#what-works-today) and the [roadmap](docs/roadmap.md).
@@ -39,8 +39,8 @@ Good free tools already exist: [BARAM](https://github.com/nextfoam/baram)
 |---|---|
 | Geometry | STEP / IGES / BREP import (optional `gmsh` package), length unit chosen on import; STL import (ASCII and binary), with each named solid of an STL usable as a wall or an opening; box, sphere, cylinder primitives; shapes as solid surfaces or refinement regions |
 | Mesh | Base mesh box with named faces; automatic sizing (wind tunnel, or snug box for internal flow); snappyHexMesh with surface refinement, refinement regions and by distance, feature edges and boundary layers; fluid outside or inside a shape; checkMesh report |
-| Free surface | Water and air with a free surface (interFoam): gravity, surface tension, water placed as boxes or filled to a level, time step that follows the water surface; a sharper-interface variant (interIsoFoam); regular waves with a wave maker and an absorbing outlet; discharge and water-depth monitors |
-| Physics | Incompressible flow, steady (simpleFoam) and transient (pimpleFoam); laminar, k-epsilon, realizable k-epsilon, k-omega SST, Spalart-Allmaras; potential-flow start; small fluid list |
+| Free surface | Water and air with a free surface (interFoam): gravity, surface tension, water placed as boxes or filled to a level, time step that follows the water surface; a sharper-interface variant (interIsoFoam); waves (Stokes 1st, 2nd and 5th order, cnoidal, solitary) with a wave maker and an absorbing outlet; contact angle; mesh refinement that follows the water surface; cavitation index; discharge and water-depth monitors |
+| Physics | Incompressible flow, steady (simpleFoam) and transient (pimpleFoam); laminar, k-epsilon (standard, realizable, RNG), k-omega (standard, SST), Spalart-Allmaras, k-kl-omega transition; wall functions or resolved boundary layer; non-Newtonian fluids; a passive tracer; velocity limiter; potential-flow start; small fluid list |
 | Boundaries | Velocity inlet, inlet by flow rate (follows the water level in free-surface flow), pressure outlet, free outflow, outlet at a tailwater level, wave maker, wave-absorbing outlet, open atmosphere, wall, moving wall, slip, symmetry / empty; sensible defaults from patch names and types |
 | Run | Serial or parallel (automatic decomposition and reconstruction); live residual plot; convergence target; drag and lift coefficients with a live plot and forces in newtons; probes; frontal-area estimate; graceful stop and continue; the final state is always saved; log |
 | Results | Built-in 3D view (mesh, slices, surface colouring, the water surface coloured by speed); y+, wall shear stress, vorticity and Q computed on demand; one click to ParaView |

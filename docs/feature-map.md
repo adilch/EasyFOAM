@@ -59,7 +59,7 @@ current version, through WSL or natively), keeps **plain case folders** that
 remain usable by hand, and has no cell or core limits. That is the space
 EasyFOAM aims at. If that distinction does not matter to you, use BARAM.
 
-## Where EasyFOAM stands (v0.5)
+## Where EasyFOAM stands (v0.6)
 
 Legend: done = works and is tested end to end; partial; planned = see roadmap.
 
@@ -81,17 +81,25 @@ Legend: done = works and is tested end to end; partial; planned = see roadmap.
 | Mesh import (Fluent, Gmsh), mesh transforms, patch editing, cyclic/AMI | planned |
 | checkMesh report | done (text); 3D display of bad cells planned |
 | Incompressible flow, steady and transient (simpleFoam, pimpleFoam) | done |
-| Laminar, k-epsilon, realizable k-epsilon, k-omega SST, Spalart-Allmaras | done |
+| Laminar, k-epsilon (standard, realizable, RNG), k-omega (standard, SST), Spalart-Allmaras, k-kl-omega transition | done |
+| Wall functions or resolved boundary layer (low-Re wall treatment) | done |
+| Non-Newtonian fluids: Cross, Bird-Carreau, Herschel-Bulkley, power law, Casson | done |
+| Passive tracer carried by the flow; velocity limiter | done |
+| LES, DES, SAS | planned |
 | Potential-flow initialisation | done |
 | Free-surface flow of water and air (VoF, interFoam) with gravity and surface tension | done |
 | Initial water regions (boxes, fill to a level); water-surface display; water-volume read-out | done |
 | Hydraulic boundaries: inlet by flow rate that follows the water level, open atmosphere, free outflow | done |
 | Heat transfer, compressible, rotating machinery, particles, combustion | planned |
 | Outlet at a fixed tailwater level | done |
-| Regular waves: wave maker (Stokes 1st / 2nd order) and absorbing outlet | done |
+| Waves: Stokes 1st / 2nd / 5th order, cnoidal and solitary, with an absorbing outlet | done |
+| Contact angle of the water surface on walls | done |
+| Mesh refined at the water surface while running (serial and parallel) | done |
+| Cavitation index from free-surface results, with a plain-language verdict | done |
 | Discharge through boundaries and water depth at gauge points, with live plots | done |
 | Sharper interface solver (interIsoFoam) | done |
-| Irregular and solitary waves, sediment, air entrainment | planned |
+| Moving gates and floating bodies (6DoF), cavitating flow solver, irregular waves | planned |
+| Sediment, air entrainment | planned |
 | Boundary presets: velocity inlet, pressure outlet, wall, moving wall, slip, symmetry/empty | done |
 | Wider boundary-condition library, time tables, profiles | planned |
 | Material list (air, water, oils) | done (small) |

@@ -16,7 +16,7 @@ C_MU = 0.09
 #: kinds that behave like a pressure outlet in single-fluid flow
 OUTLET_LIKE = ("pressureOutlet", "freeOutflow", "waterLevelOutlet", "waveOutlet")
 MIN_SPEED = 0.1  # m/s, keeps turbulence quantities positive for a flow starting at rest
-TRANSPORTED = '"(U|k|epsilon|omega|nuTilda)"'
+TRANSPORTED = '"(U|k|epsilon|omega|nuTilda|kt|kl)"'
 
 DIMENSIONS = {
     "U": "[0 1 -1 0 0 0 0]",
@@ -25,6 +25,8 @@ DIMENSIONS = {
     "epsilon": "[0 2 -3 0 0 0 0]",
     "omega": "[0 0 -1 0 0 0 0]",
     "nuTilda": "[0 2 -1 0 0 0 0]",
+    "kt": "[0 2 -2 0 0 0 0]",
+    "kl": "[0 2 -2 0 0 0 0]",
     "nut": "[0 2 -1 0 0 0 0]",
 }
 WALL_FUNCTIONS = {
@@ -62,7 +64,10 @@ def _turbulence(project: Project, speed: float) -> dict[str, float]:
     k, epsilon, omega = turbulence_inlet_values(
         speed, project.physics.turbulence_intensity, project.physics.turbulence_length
     )
-    return {"k": k, "epsilon": epsilon, "omega": omega, "nuTilda": 3.0 * project.physics.nu, "nut": 0.0}
+    return {
+        "k": k, "epsilon": epsilon, "omega": omega, "nuTilda": 3.0 * project.physics.nu, "nut": 0.0,
+        "kt": k, "kl": 0.0,  # transition model: turbulent and laminar kinetic energy
+    }  # fmt: skip
 
 
 def _boundaries(project: Project, patches: Sequence[Patch]) -> dict[str, Boundary]:
@@ -103,15 +108,24 @@ def _entry(field: str, patch: Patch, bc: Boundary, project: Project, internal: d
         return {"type": "zeroGradient"}
 
     # turbulence fields
+    model = project.physics.turbulence
+    transition = model == "kkLOmega"  # always resolved down to the wall
+    low_re = project.physics.wall_treatment == "lowRe"
     if field == "nut":
-        if not is_wall:
+        if not is_wall or transition:
             return {"type": "calculated", "value": "uniform 0"}
-        needs_k = "k" in turbulence_fields(project.physics.turbulence)
+        if low_re:
+            return {"type": "nutLowReWallFunction", "value": "uniform 0"}
+        needs_k = "k" in turbulence_fields(model)
         function = "nutkWallFunction" if needs_k else "nutUSpaldingWallFunction"
         return {"type": function, "value": "uniform 0"}
     if is_wall:
-        if field == "nuTilda":
+        if field in ("nuTilda", "kt", "kl"):
             return {"type": "fixedValue", "value": "uniform 0"}
+        if transition and field == "omega":
+            return {"type": "zeroGradient"}
+        if low_re and field == "k":
+            return {"type": "kLowReWallFunction", "value": _scalar(internal[field])}
         return {"type": WALL_FUNCTIONS[field], "value": _scalar(internal[field])}
     if bc.kind == "flowRateInlet":
         return {"type": "fixedValue", "value": _scalar(internal[field])}
@@ -146,6 +160,31 @@ def field_dicts(project: Project, patches: Sequence[Patch]) -> dict[str, tuple[s
                     p.name: _entry(name, p, boundaries[p.name], project, internal) for p in patches
                 },
             },
+        )
+    out.update(tracer_fields(project, patches, boundaries))
+    return out
+
+
+def tracer_fields(project: Project, patches: Sequence[Patch], boundaries: dict[str, Boundary]) -> dict:
+    """Field files of the tracers: they enter through inlets with the given concentration."""
+    out: dict[str, tuple[str, dict]] = {}
+    for tracer in project.tracers:
+        entries = {}
+        for patch in patches:
+            bc = boundaries[patch.name]
+            if bc.kind == "constraint":
+                entries[patch.name] = {"type": patch.type}
+            elif bc.kind == "slip":
+                entries[patch.name] = {"type": "slip"}
+            elif bc.kind in ("velocityInlet", "flowRateInlet", "waveInlet"):
+                entries[patch.name] = {"type": "fixedValue", "value": f"uniform {bc.tracer_value:g}"}
+            elif bc.kind in ("wall", "movingWall"):
+                entries[patch.name] = {"type": "zeroGradient"}
+            else:
+                entries[patch.name] = {"type": "inletOutlet", "inletValue": "uniform 0", "value": "uniform 0"}
+        out[tracer.name] = (
+            "volScalarField",
+            {"dimensions": "[0 0 0 0 0 0 0]", "internalField": "uniform 0", "boundaryField": entries},
         )
     return out
 
@@ -217,6 +256,15 @@ def _functions(project: Project, patches: Sequence[Patch]) -> dict:
                 "alpha": freesurface.WATER,
                 "locations": [list(point) for point in project.probes],
             }
+    for tracer in project.tracers:
+        functions[f"tracer_{tracer.name}"] = {
+            "type": "scalarTransport",
+            "libs": ["solverFunctionObjects"],
+            "field": tracer.name,
+            "D": tracer.diffusivity,
+            "resetOnStartUp": False,
+            "writeControl": "writeTime",
+        }
     existing = {p.name for p in patches}
     for name in project.flow_monitors:
         if name in existing:
@@ -301,7 +349,10 @@ def control_dict(project: Project, patches: Sequence[Patch] | None = None) -> di
 
 def fv_schemes(project: Project) -> dict:
     if solver_spec(project.physics.solver).multiphase:
-        return freesurface.fv_schemes(project)
+        schemes = freesurface.fv_schemes(project)
+        for tracer in project.tracers:
+            schemes["divSchemes"][f"div(phi,{tracer.name})"] = "Gauss limitedLinear 1"
+        return schemes
     steady = solver_spec(project.physics.solver).steady
     accurate = project.physics.numerics == "accurate"
     bounded = "bounded " if steady else ""
@@ -314,6 +365,8 @@ def fv_schemes(project: Project) -> dict:
         if name != "nut":
             scheme = f"linearUpwind grad({name})" if accurate else "upwind"
             div[f"div(phi,{name})"] = f"{bounded}Gauss {scheme}"
+    for tracer in project.tracers:
+        div[f"div(phi,{tracer.name})"] = f"{bounded}Gauss limitedLinear 1"
     correction = "corrected" if accurate else "limited corrected 0.5"
     return {
         "ddtSchemes": {"default": "steadyState" if steady else "Euler"},
@@ -327,13 +380,19 @@ def fv_schemes(project: Project) -> dict:
 
 
 def fv_solution(project: Project) -> dict:
+    tracer_solver = {"solver": "smoothSolver", "smoother": "symGaussSeidel", "tolerance": 1e-08, "relTol": 0.01}
     if solver_spec(project.physics.solver).multiphase:
-        return freesurface.fv_solution(project)
+        solution = freesurface.fv_solution(project)
+        for tracer in project.tracers:
+            solution["solvers"][tracer.name] = dict(tracer_solver)
+        return solution
     steady = solver_spec(project.physics.solver).steady
     accurate = project.physics.numerics == "accurate"
     pressure = {"solver": "GAMG", "smoother": "GaussSeidel", "tolerance": 1e-06, "relTol": 0.05}
     transport = {"solver": "smoothSolver", "smoother": "symGaussSeidel", "tolerance": 1e-08, "relTol": 0.1}
     solvers: dict = {"p": pressure, TRANSPORTED: transport}
+    for tracer in project.tracers:
+        solvers[tracer.name] = dict(tracer_solver)
     extra: dict = {}
     if project.physics.potential_init:
         solvers["Phi"] = {**pressure, "relTol": 0.01}
@@ -373,7 +432,35 @@ def fv_solution(project: Project) -> dict:
 def transport_properties(project: Project) -> dict:
     if solver_spec(project.physics.solver).multiphase:
         return freesurface.transport_properties(project)
-    return {"transportModel": "Newtonian", "nu": project.physics.nu}
+    return viscosity_entries(project)
+
+
+def viscosity_entries(project: Project) -> dict:
+    """The viscosity model of the main fluid: constant, or a non-Newtonian law with its coefficients."""
+    model = project.physics.viscosity_model
+    if model == "Newtonian":
+        return {"transportModel": "Newtonian", "nu": project.physics.nu}
+    return {"transportModel": model, f"{model}Coeffs": dict(project.physics.viscosity_coeffs)}
+
+
+def fv_options(project: Project) -> dict | None:
+    """Optional constraints on the solution; currently a cap on the velocity."""
+    if project.physics.max_velocity <= 0:
+        return None
+    return {
+        "limitVelocity": {
+            "type": "limitVelocity",
+            "active": True,
+            "selectionMode": "all",
+            "max": float(project.physics.max_velocity),
+        }
+    }
+
+
+def dynamic_mesh_dict(project: Project) -> dict | None:
+    if not solver_spec(project.physics.solver).multiphase:
+        return None
+    return freesurface.dynamic_mesh_dict(project)
 
 
 def gravity_dict(project: Project) -> dict:
@@ -404,6 +491,14 @@ def decompose_dict(project: Project) -> dict:
     return {"numberOfSubdomains": max(1, project.run.processors), "method": "scotch"}
 
 
+def _stitch(project: Project, usual: str) -> list[Step]:
+    """The steps that put the processors' results back together."""
+    if solver_spec(project.physics.solver).multiphase and project.physics.adaptive_levels > 0:
+        # the mesh changed during the run: it has to be rebuilt together with the fields
+        return [Step("reconstructParMesh", "reconstructParMesh"), Step("reconstructPar", usual)]
+    return [Step("reconstructPar", usual)]
+
+
 def run_steps(project: Project, resume: bool = False, decomposed: bool = False) -> list[Step]:
     """Steps of a run; ``resume`` continues from the latest saved result."""
     solver = project.physics.solver
@@ -417,7 +512,7 @@ def run_steps(project: Project, resume: bool = False, decomposed: bool = False) 
         return [
             *first,
             Step(solver, f"mpirun -np {n} {solver} -parallel"),
-            Step("reconstructPar", "reconstructPar -newTimes"),
+            *_stitch(project, "reconstructPar -newTimes"),
         ]
     if n <= 1:
         first = [Step("potentialFoam", "potentialFoam")] if potential else []
@@ -426,7 +521,7 @@ def run_steps(project: Project, resume: bool = False, decomposed: bool = False) 
     if potential:
         steps.append(Step("potentialFoam", f"mpirun -np {n} potentialFoam -parallel"))
     steps.append(Step(solver, f"mpirun -np {n} {solver} -parallel"))
-    steps.append(Step("reconstructPar", "reconstructPar"))
+    steps.extend(_stitch(project, "reconstructPar"))
     return steps
 
 

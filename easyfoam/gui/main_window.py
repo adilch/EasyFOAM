@@ -57,6 +57,7 @@ from easyfoam.pipeline import (
     prepare_run,
     request_stop,
 )
+from easyfoam.results import add_cavitation_index
 from easyfoam.runtime import Runtime
 from easyfoam.solvers import solver_spec
 
@@ -994,6 +995,8 @@ class MainWindow(QMainWindow):
             if results is not None:
                 times = [t for t in results.times]
                 fields = results.fields if any(t > 0 for t in times) else []
+                if fields and solver_spec(self.project.physics.solver).multiphase and {"p", "U"} <= set(fields):
+                    fields = [*fields, "cavitationIndex"]  # computed here from pressure and speed
         except Exception as exc:  # a broken or half-written case must not take the window down
             self.statusBar().showMessage(f"Could not read results: {exc}", 8000)
         self.results_panel.set_available(times, fields)
@@ -1016,6 +1019,20 @@ class MainWindow(QMainWindow):
             if step == "Results" and self.results_panel.field.count():
                 sel = self.results_panel.selection()
                 data = results.read(sel["time"])
+                if sel["field"] == "cavitationIndex":
+                    ph = self.project.physics
+                    lowest = add_cavitation_index(data.internal, ph.rho, ph.ambient_pressure, ph.vapour_pressure)
+                    if lowest is not None:
+                        verdict = (
+                            "cavitation damage is likely" if lowest < 0.2
+                            else "cavitation may start" if lowest < 1.8
+                            else "no cavitation risk"
+                        )  # fmt: skip
+                        self.results_panel.info.setText(
+                            f"Lowest cavitation index in the water: {lowest:.3g} ({verdict}).\n"
+                            "Below about 0.2 surfaces get damaged; above about 1.8 there is no risk. "
+                            "The colour scale stops at 20."
+                        )
                 self.viewer.show_results(data, types, sel["field"], sel["mode"], sel["normal"],
                                          sel["position"], sel["edges"], sel["time"])  # fmt: skip
             else:

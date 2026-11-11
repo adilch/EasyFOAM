@@ -37,8 +37,16 @@ from easyfoam.foam.boundaryfile import Patch
 from easyfoam.gui.icons import icon
 from easyfoam.gui.style import set_primary
 from easyfoam.gui.widgets import FloatEdit, VectorEdit
-from easyfoam.model import CONSTRAINT_TYPES, FACES, KINDS_FOR_TYPE, BaseFace, Boundary, Project, Shape
-from easyfoam.solvers import MATERIALS, POST_FUNCTIONS, SOLVERS, TURBULENCE, solver_spec
+from easyfoam.model import CONSTRAINT_TYPES, FACES, KINDS_FOR_TYPE, BaseFace, Boundary, Project, Shape, Tracer
+from easyfoam.solvers import (
+    MATERIALS,
+    POST_FUNCTIONS,
+    SOLVERS,
+    TURBULENCE,
+    VISCOSITY_MODELS,
+    WAVE_MODELS,
+    solver_spec,
+)
 
 NAME_ROLE = Qt.ItemDataRole.UserRole  # == 0x0100
 
@@ -672,11 +680,44 @@ class PhysicsPanel(Panel):
         self.numerics.addItem("Robust (first-order turbulence, forgiving)", "robust")
         self.numerics.addItem("Accurate (second order, needs a good mesh)", "accurate")
         self.potential = QCheckBox("Start from a potential-flow solution")
+        self.wall_treatment = QComboBox()
+        self.wall_treatment.addItem("Wall functions (coarser mesh near walls)", "wallFunctions")
+        self.wall_treatment.addItem("Resolve the boundary layer (fine mesh, y+ about 1)", "lowRe")
+        self.wall_treatment.setToolTip(
+            "Wall functions model the thin layer next to a wall; resolving it needs very thin cells there (see y+ in Results)."
+        )
+        self.max_velocity = FloatEdit()
+        self.max_velocity.setToolTip(
+            "Caps the velocity everywhere. A safety net against runaway speeds, e.g. in the air above a water surface. 0 = off."
+        )
+        self.viscosity_model = QComboBox()
+        for key, (label, _defaults) in VISCOSITY_MODELS.items():
+            self.viscosity_model.addItem(label, key)
+        self.coeff_table = QTableWidget(0, 2)
+        self.coeff_table.setHorizontalHeaderLabels(["Coefficient", "Value"])
+        self.coeff_table.verticalHeader().setVisible(False)
+        self.coeff_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.coeff_table.setFixedHeight(150)
+        self.coeff_table.itemChanged.connect(self._coefficient_edited)
+        self.tracer_name = QLineEdit()
+        self.tracer_name.setPlaceholderText("leave empty for none, e.g. dye")
+        self.tracer_name.setToolTip(
+            "A passive quantity carried by the flow (dye, pollutant). Set its concentration at the inlets in Boundaries."
+        )
+        self.tracer_diffusivity = FloatEdit(1e-09)
+        self.adaptive = _spin(0, 4)
+        self.adaptive.setSpecialValueText("off")
+        self.adaptive.setToolTip(
+            "Refines the mesh by this many levels where the water surface is, while the run goes on. "
+            "Needs a fully 3D mesh; each level multiplies the cells there by eight."
+        )
 
         flow = QFormLayout()
         flow.addRow("Flow type", self.solver)
         flow.addRow("Turbulence", self.turbulence)
+        flow.addRow("Near walls", self.wall_treatment)
         flow.addRow("Numerics", self.numerics)
+        flow.addRow("Limit velocity [m/s], 0 = off", self.max_velocity)
         flow_box = QGroupBox("Model")
         flow_box.setLayout(flow)
 
@@ -684,6 +725,8 @@ class PhysicsPanel(Panel):
         fluid.addRow("Fluid", self.material)
         fluid.addRow("Kinematic viscosity [m²/s]", self.nu)
         fluid.addRow("Density [kg/m³]", self.rho)
+        fluid.addRow("Behaviour", self.viscosity_model)
+        fluid.addRow(self.coeff_table)
         fluid_box = QGroupBox("Fluid")
         fluid_box.setLayout(fluid)
 
@@ -725,14 +768,21 @@ class PhysicsPanel(Panel):
         water.addRow("Air viscosity [m²/s]", self.air_nu)
         water.addRow("Air density [kg/m³]", self.air_rho)
         water.addRow("Surface tension [N/m]", self.surface_tension)
+        water.addRow("Refine at the water surface", self.adaptive)
         water.addRow(_hint("Water at the start, as boxes [m]. The fluid chosen above is the water."))
         water.addRow(self.water_table)
         water.addRow(water_buttons)
         self.water_box = QGroupBox("Water and air (free surface)")
         self.water_box.setLayout(water)
 
+        tracer = QFormLayout()
+        tracer.addRow("Name", self.tracer_name)
+        tracer.addRow("Diffusivity [m²/s]", self.tracer_diffusivity)
+        tracer_box = QGroupBox("Tracer")
+        tracer_box.setLayout(tracer)
+
         layout = QVBoxLayout(self)
-        for box in (flow_box, fluid_box, self.water_box, start_box):
+        for box in (flow_box, fluid_box, self.water_box, start_box, tracer_box):
             layout.addWidget(box)
         layout.addWidget(_hint(
             "Pressure is the kinematic pressure p/ρ in m²/s². Multiply by the density to get pascals."
@@ -755,6 +805,14 @@ class PhysicsPanel(Panel):
         self.air_nu.changed.connect(lambda v: self._set("air_nu", v))
         self.air_rho.changed.connect(lambda v: self._set("air_rho", v))
         self.surface_tension.changed.connect(lambda v: self._set("surface_tension", v))
+        self.wall_treatment.currentIndexChanged.connect(
+            lambda: self._set("wall_treatment", self.wall_treatment.currentData())
+        )
+        self.max_velocity.changed.connect(lambda v: self._set("max_velocity", v))
+        self.viscosity_model.currentIndexChanged.connect(self._viscosity_chosen)
+        self.adaptive.valueChanged.connect(lambda v: self._set("adaptive_levels", v))
+        self.tracer_name.editingFinished.connect(self._tracer_edited)
+        self.tracer_diffusivity.changed.connect(lambda _v: self._tracer_edited())
 
     def load(self, project: Project) -> None:
         self.project = project
@@ -775,10 +833,67 @@ class PhysicsPanel(Panel):
             self.air_nu.set_value(ph.air_nu)
             self.air_rho.set_value(ph.air_rho)
             self.surface_tension.set_value(ph.surface_tension)
+            self.wall_treatment.setCurrentIndex(max(0, self.wall_treatment.findData(ph.wall_treatment)))
+            self.max_velocity.set_value(ph.max_velocity)
+            self.viscosity_model.setCurrentIndex(max(0, self.viscosity_model.findData(ph.viscosity_model)))
+            self.adaptive.setValue(ph.adaptive_levels)
+            tracer = project.tracers[0] if project.tracers else None
+            self.tracer_name.setText(tracer.name if tracer else "")
+            self.tracer_diffusivity.set_value(tracer.diffusivity if tracer else 1e-09)
+        self._fill_coefficients()
         multiphase = ph.solver in SOLVERS and SOLVERS[ph.solver].multiphase
         self.water_box.setVisible(multiphase)
         self.potential.setEnabled(not multiphase)
         self._fill_water()
+
+    def _fill_coefficients(self) -> None:
+        ph = self.project.physics
+        with self.loading():
+            self.coeff_table.setRowCount(len(ph.viscosity_coeffs))
+            for row, (name, value) in enumerate(ph.viscosity_coeffs.items()):
+                label = QTableWidgetItem(name)
+                label.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                self.coeff_table.setItem(row, 0, label)
+                self.coeff_table.setItem(row, 1, QTableWidgetItem(f"{value:g}"))
+        newtonian = ph.viscosity_model == "Newtonian"
+        self.coeff_table.setVisible(not newtonian)
+        self.nu.setEnabled(newtonian)
+
+    def _viscosity_chosen(self) -> None:
+        name = self.viscosity_model.currentData()
+
+        def edit():
+            self.project.physics.viscosity_model = name
+            self.project.physics.viscosity_coeffs = dict(VISCOSITY_MODELS[name][1])
+
+        self.apply(edit)
+        if self.project is not None and not self._loading:
+            self._fill_coefficients()
+
+    def set_coefficient(self, name: str, value: float) -> None:
+        """Change one coefficient of the non-Newtonian viscosity model."""
+        def edit():
+            self.project.physics.viscosity_coeffs[name] = float(value)
+
+        self.apply(edit)
+        self._fill_coefficients()
+
+    def _coefficient_edited(self, item) -> None:
+        if self._loading or self.project is None or item.column() != 1:
+            return
+        name = self.coeff_table.item(item.row(), 0).text()
+        try:
+            self.set_coefficient(name, float(item.text().replace(",", ".")))
+        except ValueError:
+            self._fill_coefficients()
+
+    def _tracer_edited(self) -> None:
+        if self.project is None or self._loading:
+            return
+        name = geometry.safe_name(self.tracer_name.text()) if self.tracer_name.text().strip() else ""
+        wanted = [Tracer(name, self.tracer_diffusivity.value())] if name else []
+        if wanted != self.project.tracers:
+            self.apply(lambda: setattr(self.project, "tracers", wanted))
 
     def _solver_chosen(self) -> None:
         name = self.solver.currentData()
@@ -902,8 +1017,15 @@ class BoundaryPanel(Panel):
         self.wave_period = FloatEdit(2.0)
         self.wave_period.setToolTip("Time between two wave crests.")
         self.wave_model = QComboBox()
-        self.wave_model.addItem("Stokes 2nd order (most regular waves)", "StokesII")
-        self.wave_model.addItem("Stokes 1st order (small, linear waves)", "StokesI")
+        for key, label in WAVE_MODELS.items():
+            self.wave_model.addItem(label, key)
+        self.contact_angle = FloatEdit(90.0)
+        self.contact_angle.setToolTip(
+            "Angle at which the water surface meets this wall, in degrees. 90 is neutral; "
+            "below 90 the water wets the wall, above 90 it is repelled."
+        )
+        self.tracer_value = FloatEdit()
+        self.tracer_value.setToolTip("Concentration of the tracer in the fluid entering here (for example 1).")
 
         self.form = QFormLayout()
         self.form.addRow("Condition", self.kind)
@@ -915,6 +1037,8 @@ class BoundaryPanel(Panel):
         self.form.addRow("Wave height [m]", self.wave_height)
         self.form.addRow("Wave period [s]", self.wave_period)
         self.form.addRow("Wave theory", self.wave_model)
+        self.form.addRow("Contact angle [°]", self.contact_angle)
+        self.form.addRow("Tracer concentration", self.tracer_value)
         self.form.addRow(self.hint)
         self.details = QGroupBox("Selected boundary")
         self.details.setLayout(self.form)
@@ -934,6 +1058,8 @@ class BoundaryPanel(Panel):
         self.wave_height.changed.connect(lambda _v: self._edited())
         self.wave_period.changed.connect(lambda _v: self._edited())
         self.wave_model.currentIndexChanged.connect(lambda _i: self._edited())
+        self.contact_angle.changed.connect(lambda _v: self._edited())
+        self.tracer_value.changed.connect(lambda _v: self._edited())
 
     def load(self, project: Project, patches: Sequence[Patch], from_mesh: bool = False) -> None:
         self.project, self.patches = project, list(patches)
@@ -983,6 +1109,8 @@ class BoundaryPanel(Panel):
             self.wave_height.set_value(bc.wave_height)
             self.wave_period.set_value(bc.wave_period)
             self.wave_model.setCurrentIndex(max(0, self.wave_model.findData(bc.wave_model)))
+            self.contact_angle.set_value(bc.contact_angle)
+            self.tracer_value.set_value(bc.tracer_value)
         self._show_rows(bc.kind)
 
     def _show_rows(self, kind: str) -> None:
@@ -994,6 +1122,13 @@ class BoundaryPanel(Panel):
         self.form.setRowVisible(self.level, kind == "waterLevelOutlet")
         for widget in (self.wave_height, self.wave_period, self.wave_model):
             self.form.setRowVisible(widget, kind == "waveInlet")
+        if kind == "waveInlet" and self.wave_model.currentData() == "solitary":
+            self.form.setRowVisible(self.wave_period, False)  # a single crest has no period
+        self.form.setRowVisible(self.contact_angle, kind in ("wall", "movingWall") and multiphase)
+        has_tracer = self.project is not None and bool(self.project.tracers)
+        self.form.setRowVisible(
+            self.tracer_value, has_tracer and kind in ("velocityInlet", "flowRateInlet", "waveInlet")
+        )
         self.hint.setText(KIND_HINTS.get(kind, ""))
 
     def _edited(self) -> None:
@@ -1008,6 +1143,7 @@ class BoundaryPanel(Panel):
                 flow_rate=self.flow_rate.value(), water_fraction=self.water_fraction.value(),
                 level=self.level.value(), wave_height=self.wave_height.value(),
                 wave_period=self.wave_period.value(), wave_model=self.wave_model.currentData(),
+                contact_angle=self.contact_angle.value(), tracer_value=self.tracer_value.value(),
             )
 
         self.apply(edit)

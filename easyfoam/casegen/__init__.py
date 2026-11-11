@@ -73,6 +73,12 @@ def setup_files(project: Project, patches: Sequence[Patch]) -> dict[str, str]:
         waves = _setup.wave_properties(project, patches)
         if waves is not None:
             files["constant/waveProperties"] = foam_file("dictionary", "waveProperties", waves, location="constant")
+    options = _setup.fv_options(project)
+    if options is not None:
+        files["constant/fvOptions"] = foam_file("dictionary", "fvOptions", options, location="constant")
+    moving = _setup.dynamic_mesh_dict(project)
+    if moving is not None:
+        files["constant/dynamicMeshDict"] = foam_file("dictionary", "dynamicMeshDict", moving, location="constant")
     for name, (cls, data) in _setup.field_dicts(project, patches).items():
         files[f"0/{name}"] = foam_file(cls, name, data, location="0")
     return files

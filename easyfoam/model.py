@@ -111,6 +111,13 @@ class Physics:
     surface_tension: float = 0.07  # N/m
     #: boxes filled with water at the start, each [x0, y0, z0, x1, y1, z1]
     water_regions: list[list[float]] = field(default_factory=list)
+    wall_treatment: str = "wallFunctions"  # wallFunctions | lowRe (resolve the boundary layer)
+    viscosity_model: str = "Newtonian"  # see easyfoam.solvers.VISCOSITY_MODELS
+    viscosity_coeffs: dict[str, float] = field(default_factory=dict)
+    max_velocity: float = 0.0  # m/s, cap on the velocity anywhere (0 = no cap)
+    adaptive_levels: int = 0  # free surface: refine the mesh at the water surface by this many levels
+    ambient_pressure: float = 101325.0  # Pa, absolute pressure of the surrounding air
+    vapour_pressure: float = 2339.0  # Pa, of the water (20 degC)
 
 
 @dataclass
@@ -124,6 +131,8 @@ class Boundary:
     wave_height: float = 0.05  # m, crest to trough
     wave_period: float = 2.0  # s
     wave_model: str = "StokesII"  # StokesI | StokesII
+    contact_angle: float = 90.0  # degrees, of the water surface on a wall (90 = neutral)
+    tracer_value: float = 0.0  # concentration of the tracer(s) entering through an inlet
 
 
 @dataclass
@@ -153,6 +162,14 @@ class ForceMonitor:
 
 
 @dataclass
+class Tracer:
+    """A passive quantity carried by the flow (dye, pollutant, age)."""
+
+    name: str = "tracer"
+    diffusivity: float = 1e-09  # m2/s
+
+
+@dataclass
 class Project:
     name: str = "case"
     format_version: int = FORMAT_VERSION
@@ -165,6 +182,7 @@ class Project:
     forces: ForceMonitor = field(default_factory=ForceMonitor)
     probes: list[list[float]] = field(default_factory=list)  # points where p and U are recorded
     flow_monitors: list[str] = field(default_factory=list)  # boundaries whose discharge is recorded
+    tracers: list[Tracer] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)

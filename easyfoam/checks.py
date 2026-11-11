@@ -20,6 +20,9 @@ TURBULENCE_NAMES = {
     "kOmegaSST": "k-omega SST",
     "realizableKE": "realizable k-epsilon",
     "SpalartAllmaras": "Spalart-Allmaras",
+    "RNGkEpsilon": "RNG k-epsilon",
+    "kOmega": "k-omega",
+    "kkLOmega": "k-kl-omega (transition)",
 }
 _RANK = {"error": 3, "warning": 2, "todo": 1}
 
@@ -62,6 +65,12 @@ def project_issues(project: Project, patches: Sequence[Patch], has_mesh: bool) -
     if multiphase:
         if not _moving(project.physics.gravity):
             issues.append(Issue("Physics", "error", "Free-surface flow needs gravity: set it in the Physics step."))
+        if project.physics.adaptive_levels > 0 and any(p.type in ("empty", "wedge") for p in patches):
+            issues.append(
+                Issue("Physics", "error",
+                      "Refining the mesh at the water surface needs a fully 3D mesh: it cannot be used "
+                      "with 'empty' (thin-slice) boundaries. Set the refinement levels to 0.")  # fmt: skip
+            )
         water_inlet = any(
             b.kind == "flowRateInlet" or (b.kind == "velocityInlet" and b.water_fraction > 0) for b in chosen
         )

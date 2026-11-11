@@ -74,6 +74,14 @@ def _entry(field: str, patch: Patch, bc: Boundary, base) -> dict:
         return {"type": "variableHeightFlowRate", "lowerBound": 0, "upperBound": 1, "value": "uniform 0"}
     if bc.kind == "atmosphere":
         return {"type": "inletOutlet", "inletValue": "uniform 0", "value": "uniform 0"}
+    if bc.kind in ("wall", "movingWall") and abs(bc.contact_angle - 90.0) > 1e-9:
+        # the angle at which the water surface meets the wall (below 90: the water wets the wall)
+        return {
+            "type": "constantAlphaContactAngle",
+            "theta0": float(bc.contact_angle),
+            "limit": "gradient",
+            "value": "uniform 0",
+        }
     return {"type": "zeroGradient"}
 
 
@@ -106,6 +114,7 @@ def field_dicts(project: Project, patches: Sequence[Patch]) -> dict[str, tuple[s
                 },
             },
         )
+    out.update(base.tracer_fields(project, patches, boundaries))
     return out
 
 
@@ -182,10 +191,12 @@ def fv_solution(project: Project) -> dict:
 
 
 def transport_properties(project: Project) -> dict:
+    from easyfoam.casegen.setup import viscosity_entries
+
     ph = project.physics
     return {
         "phases": ["water", "air"],
-        "water": {"transportModel": "Newtonian", "nu": ph.nu, "rho": ph.rho},
+        "water": {**viscosity_entries(project), "rho": ph.rho},
         "air": {"transportModel": "Newtonian", "nu": ph.air_nu, "rho": ph.air_rho},
         "sigma": ph.surface_tension,
     }
@@ -239,16 +250,52 @@ def wave_properties(project: Project, patches: Sequence[Patch]) -> dict | None:
     for patch in patches:
         bc = project.boundary_for(patch.name, patch.type)
         if bc.kind == "waveInlet":
-            waves[patch.name] = {
-                "alpha": WATER,
-                "waveModel": bc.wave_model,
-                "nPaddle": 1,
-                "waveHeight": bc.wave_height,
-                "waveAngle": 0.0,
-                "rampTime": bc.wave_period,
-                "activeAbsorption": True,
-                "wavePeriod": bc.wave_period,
-            }
+            if bc.wave_model == "solitary":  # a single crest: no period, no ramp-up
+                waves[patch.name] = {
+                    "alpha": WATER,
+                    "waveModel": "Boussinesq",
+                    "nPaddle": 1,
+                    "waveHeight": bc.wave_height,
+                    "waveAngle": 0.0,
+                    "activeAbsorption": True,
+                    "wavePeriod": 0.0,
+                }
+            else:
+                waves[patch.name] = {
+                    "alpha": WATER,
+                    "waveModel": bc.wave_model,
+                    "nPaddle": 1,
+                    "waveHeight": bc.wave_height,
+                    "waveAngle": 0.0,
+                    "rampTime": bc.wave_period,
+                    "activeAbsorption": True,
+                    "wavePeriod": bc.wave_period,
+                }
         elif bc.kind == "waveOutlet":
             waves[patch.name] = {"alpha": WATER, "waveModel": "shallowWaterAbsorption", "nPaddle": 1}
     return waves or None
+
+
+def dynamic_mesh_dict(project: Project) -> dict | None:
+    """Refine the mesh where the water surface is, and coarsen it again where it has left."""
+    levels = int(project.physics.adaptive_levels)
+    if levels <= 0:
+        return None
+    return {
+        "dynamicFvMesh": "dynamicRefineFvMesh",
+        "dynamicRefineFvMeshCoeffs": {
+            "refineInterval": 1,
+            "field": WATER,
+            "lowerRefineLevel": 0.001,
+            "upperRefineLevel": 0.999,
+            "unrefineLevel": 10,
+            "nBufferLayers": 1,
+            "maxRefinement": levels,
+            "maxCells": 5000000,
+            "correctFluxes": [
+                ["phi", "none"], ["nHatf", "none"], ["rhoPhi", "none"],
+                ["alphaPhi0.water", "none"], ["alphaPhi0", "none"], ["alphaPhiUn", "none"], ["ghf", "none"],
+            ],  # fmt: skip
+            "dumpLevel": True,
+        },
+    }

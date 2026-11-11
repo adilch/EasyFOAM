@@ -28,6 +28,9 @@ TURBULENCE: dict[str, tuple[str, tuple[str, ...]]] = {
     "kOmegaSST": ("k-omega SST (RANS)", ("k", "omega", "nut")),
     "realizableKE": ("Realizable k-epsilon (RANS)", ("k", "epsilon", "nut")),
     "SpalartAllmaras": ("Spalart-Allmaras (RANS, external aerodynamics)", ("nuTilda", "nut")),
+    "RNGkEpsilon": ("RNG k-epsilon (RANS, swirling and separating flow)", ("k", "epsilon", "nut")),
+    "kOmega": ("k-omega, standard (RANS)", ("k", "omega", "nut")),
+    "kkLOmega": ("k-kl-omega (RANS with laminar-turbulent transition)", ("kt", "kl", "omega", "nut")),
 }
 
 #: name -> (kinematic viscosity m2/s, density kg/m3), around 20 degC and 1 atm
@@ -61,4 +64,23 @@ POST_FUNCTIONS: dict[str, str] = {
     "wallShearStress": "Wall shear stress",
     "vorticity": "Vorticity",
     "Q": "Q criterion (vortex cores)",
+}
+
+#: non-Newtonian viscosity models -> (label, default coefficients)
+VISCOSITY_MODELS: dict[str, tuple[str, dict[str, float]]] = {
+    "Newtonian": ("Newtonian (constant viscosity)", {}),
+    "CrossPowerLaw": ("Cross power law (shear-thinning)", {"nu0": 0.01, "nuInf": 1e-05, "m": 0.4, "n": 3.0}),
+    "BirdCarreau": ("Bird-Carreau (polymers, blood)", {"nu0": 1e-03, "nuInf": 1e-06, "k": 1.0, "n": 0.5}),
+    "HerschelBulkley": ("Herschel-Bulkley (yield stress: mud, slurry)", {"k": 0.01, "n": 0.8, "tau0": 0.1, "nu0": 1.0}),
+    "powerLaw": ("Power law", {"nuMax": 1e-02, "nuMin": 1e-06, "k": 1e-03, "n": 0.7}),
+    "Casson": ("Casson (blood, suspensions)", {"m": 3.9e-06, "tau0": 2.9e-06, "nuMin_": 1e-06, "nuMax_": 1e-03}),
+}
+
+#: wave theories of the wave maker -> label
+WAVE_MODELS: dict[str, str] = {
+    "StokesII": "Stokes 2nd order (most regular waves)",
+    "StokesI": "Stokes 1st order (small, linear waves)",
+    "StokesV": "Stokes 5th order (steep waves in deeper water)",
+    "cnoidal": "Cnoidal (long waves in shallow water)",
+    "solitary": "Solitary wave (one crest, e.g. a surge)",
 }

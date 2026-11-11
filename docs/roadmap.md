@@ -57,7 +57,7 @@ Done:
 - Water-surface view coloured by speed; share of water in the domain while running.
 - Examples: flow over a weir (compared with the weir formula) and a dam break.
 
-## v0.5 - hydraulics completed, CAD import (this version)
+## v0.5 - hydraulics completed, CAD import (done)
 
 Done:
 
@@ -75,6 +75,38 @@ Still open for hydraulics:
 - Irregular (spectrum) and solitary waves; wave direction.
 - Several tailwater levels in one case (one reference level is supported).
 - Sediment transport and air entrainment (out of scope for now).
+
+## v0.6 - quick additions and hydraulics extras (this version)
+
+The build order from here on follows the capability review of 2026-11, hydraulics first.
+
+Done:
+
+- Turbulence: RNG k-epsilon, standard k-omega, k-kl-omega transition; choice
+  between wall functions and a resolved boundary layer.
+- Fluids: non-Newtonian laws (Cross, Bird-Carreau, Herschel-Bulkley, power law, Casson).
+- A passive tracer; a velocity limiter.
+- Free surface: contact angle on walls; Stokes 5th order, cnoidal and solitary
+  waves; mesh refinement that follows the water surface (serial and parallel);
+  cavitation index computed from the results.
+
+## Next for hydraulics
+
+1. Moving parts: prescribed motion (gates, valves) and floating bodies (6DoF).
+2. Cavitating flow in closed conduits (interPhaseChangeFoam: Schnerr-Sauer, Kunz, Merkle).
+3. Irregular (spectrum) waves and stream-function waves.
+
+## Then, in this order
+
+1. Cell zones: porous media, MRF, SRF, source terms, fixed-value zones.
+2. Heat transfer in one region: buoyancy, thermal boundaries, P1 / DO radiation.
+3. Conjugate heat transfer, S2S radiation, solar load, Joule heating.
+4. LES, DES, SAS.
+5. Sliding meshes (AMI), multi-body motion, mesh deformation; overset last.
+6. Compressible flow and equations of state.
+7. Phase change, Euler-Euler.
+8. Particles.
+9. Combustion.
 
 ## Next - heat
 
