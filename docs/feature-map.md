@@ -1,0 +1,97 @@
+# Feature map
+
+What a commercial OpenFOAM front-end offers, what already exists as open source,
+and where EasyFOAM stands. Researched on 2026-11-11.
+
+## How this was researched (clean-room rules)
+
+- SimFlow's features were taken **only from public pages**: sim-flow.com and
+  help.sim-flow.com (documentation, FAQ, tutorials, pricing).
+- SimFlow's programs were **not** reverse engineered, decompiled or disassembled.
+  Its licence (clause 3.3b) forbids that, and code derived from it could not be
+  published as open source.
+- No SimFlow code, icons, texts, material data or screen layouts are used.
+  Everything here is written from scratch against OpenFOAM's own open formats.
+- Contributors who have seen SimFlow's source or decompiled code should not
+  contribute to the matching parts of EasyFOAM.
+
+## SimFlow at a glance (public information)
+
+| Area | What it offers |
+|---|---|
+| Workflow | One window with about 27 panels, from Geometry and Hex Meshing through Boundary Conditions, Monitors and Run to Postprocessing. A wizard picks the solver from a few questions. |
+| Geometry | Import STL, OBJ, STEP, IGES, BREP, airfoil DAT. Box, cylinder, sphere primitives. Move/rotate/scale, booleans (not on STL), STL check and split, face groups that become patches. |
+| Meshing | Hex-dominant cut-cell meshing in the snappyHexMesh style: base mesh (box, cylinder, 2D plate, wedge), surface and volume refinement, gap refinement, boundary layers, material point, multi-region, parallel meshing. 2D airfoil mesher, optional Gmsh. |
+| Mesh tools | Import from Fluent, Ansys, I-DEAS, Gambit, Gmsh, CFX4, OpenFOAM. checkMesh with bad cells shown in 3D, transforms, refine, extrude, patch split/merge/retype, cyclic/AMI interfaces, cell zones. |
+| Solvers | 54 solvers of the ESI OpenFOAM line: incompressible, compressible, buoyant and conjugate heat transfer, VoF multiphase, cavitation and phase change, Euler-Euler, particles (DPM/MPPIC), combustion and sprays, overset, SRF. |
+| Models | RANS, LES, DES; radiation; porous media; MRF; non-Newtonian; waves; passive scalars; rigid, deforming and 6DoF mesh motion. |
+| Set-up | About 70 boundary-condition types with time tables, material database, initialisation (uniform, potential flow, by region, mapped), full discretisation and linear-solver control, named parameters and expressions. |
+| Run | Serial or parallel with a core count, adaptive time step, write and purge control, e-mail notification, chained runs. Back-ends: bundled Windows build, WSL, bashrc script, Docker. |
+| Monitoring | Live residuals with auto-stop, forces and coefficients, probes, volume and boundary statistics, runtime slices in the 3D view. |
+| Post-processing | Calculators (vorticity, Q, y+, wall shear stress, Mach), bundled ParaView for everything else, export to other formats. |
+| Platforms | Windows, Linux, macOS (Apple Silicon). ESI OpenFOAM v2512/v2506/v2212/v1812. |
+| Editions | Free: 200,000 mesh nodes, 1 CPU, no case import/export. Professional 8,000 EUR/year, Enterprise 10,000 EUR/year. |
+
+Sources: https://help.sim-flow.com/documentation/panels/geometry ,
+https://help.sim-flow.com/solvers , https://help.sim-flow.com/boundary-conditions ,
+https://help.sim-flow.com/tutorials , https://help.sim-flow.com/faq ,
+https://sim-flow.com/pricing-plans/ .
+
+The 28 official tutorials show what users do most: pipe flow, wind around
+buildings, car and wing aerodynamics, ventilation, ship hull and dam break
+(free surface), mixing tank and propeller (rotating parts), electronics
+cooling and heat exchangers (heat transfer), cyclone and spray (particles).
+
+## Existing open-source front-ends
+
+| Project | Licence | Stack | State | Notes |
+|---|---|---|---|---|
+| [BARAM](https://github.com/nextfoam/baram) | GPL-3.0 | Python, PySide6, VTK | Active, v26.3 (Sep 2026) | Native Windows/Linux/macOS. Mesher and flow solver GUIs. Uses its own bundled, modified solvers. |
+| [CfdOF](https://github.com/jaheyns/CfdOF) | LGPL-3.0 | FreeCAD workbench | Very active | Needs FreeCAD. cfMesh, snappyHexMesh, gmsh. Works with blueCFD, WSL, Docker. |
+| [SplashFOAM](https://github.com/cfddose/Splash) | LGPL-3.0 | Python | Slow | Ubuntu only (Windows through WSL). |
+| [HELYX-OS](https://github.com/ENGYS/HELYX-OS) | GPL | Java | Deprecated | OpenFOAM 4.1 era. |
+| FoamPilot, OpenFOAM Studio | MIT | Electron | New, small | Early wizards. |
+
+**Is there still a gap?** A narrower one than "no free GUI exists". BARAM is a
+credible product and CfdOF is mature for FreeCAD users. What is missing is a
+standalone application that drives the user's **own stock OpenFOAM** (any
+current version, through WSL or natively), keeps **plain case folders** that
+remain usable by hand, and has no cell or core limits. That is the space
+EasyFOAM aims at. If that distinction does not matter to you, use BARAM.
+
+## Where EasyFOAM stands (v0.2)
+
+Legend: done = works and is tested end to end; partial; planned = see roadmap.
+
+| Capability | Status |
+|---|---|
+| Use your own OpenFOAM through WSL (auto-detected), Linux native | done |
+| Native Windows OpenFOAM builds (ESI MinGW, blueCFD) | planned |
+| Plain case folder, exact scripts kept in `.easyfoam/`, logs as `log.<step>` | done |
+| Command line for every operation (batch use) | done |
+| STL import (ASCII and binary), box / sphere / cylinder primitives | done |
+| STL regions (named solids) as separate patches, each a wall or an opening | done |
+| STEP / IGES import, booleans, STL repair and splitting | planned |
+| Base mesh box with named faces, automatic wind-tunnel or snug internal sizing | done |
+| Internal flow: fluid inside a chosen shape, interior point found automatically for closed surfaces | done |
+| snappyHexMesh: surface refinement, refinement regions and by distance, boundary layers, feature edges | done |
+| Gap refinement, multi-region meshing, parallel meshing, 2D and wedge base meshes | planned |
+| Mesh import (Fluent, Gmsh), mesh transforms, patch editing, cyclic/AMI | planned |
+| checkMesh report | done (text); 3D display of bad cells planned |
+| Incompressible flow, steady and transient (simpleFoam, pimpleFoam) | done |
+| Laminar, k-epsilon, realizable k-epsilon, k-omega SST, Spalart-Allmaras | done |
+| Potential-flow initialisation | done |
+| Heat transfer, compressible, free surface (VoF), rotating machinery, particles, combustion | planned |
+| Boundary presets: velocity inlet, pressure outlet, wall, moving wall, slip, symmetry/empty | done |
+| Wider boundary-condition library, time tables, profiles | planned |
+| Material list (air, water, oils) | done (small) |
+| Numerics presets (robust / accurate) | done; per-term editing planned |
+| Parallel run with automatic decomposition and reconstruction | done |
+| Live residual plot, convergence target, solver log, stop button | done |
+| Drag and lift coefficients with live plot and forces in newtons | done |
+| y+, wall shear stress, vorticity, Q computed on demand | done |
+| Probes, field statistics monitors | planned |
+| Built-in 3D view of geometry, mesh and results with slices | done (basic) |
+| One-click ParaView | done |
+| Parametric studies, parameters and expressions | planned |
+| Cluster / remote runs | planned |

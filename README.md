@@ -1,0 +1,138 @@
+# EasyFOAM
+
+An open-source desktop front-end for [OpenFOAM](https://www.openfoam.com).
+Geometry, meshing, case set-up, running and results in one window, driving
+**your own, unmodified OpenFOAM** and leaving a normal case folder on disk.
+
+![Results view](docs/images/Results.png)
+
+Status: **v0.2, alpha.** The whole loop works for incompressible flow around
+bodies and inside pipes and ducts; see
+[what works](#what-works-today) and the [roadmap](docs/roadmap.md).
+
+## Why another GUI
+
+Good free tools already exist: [BARAM](https://github.com/nextfoam/baram)
+(standalone, ships its own solvers) and [CfdOF](https://github.com/jaheyns/CfdOF)
+(inside FreeCAD). EasyFOAM aims at a different spot:
+
+- it runs the stock OpenFOAM you already have (through WSL on Windows, natively on Linux);
+- the case stays plain OpenFOAM, with the exact scripts that were run kept in `.easyfoam/`;
+- every operation is also a command, so cases can be scripted;
+- no limits on cells or processor cores.
+
+## What works today
+
+| | |
+|---|---|
+| Geometry | STL import (ASCII and binary), with each named solid of an STL usable as a wall or an opening; box, sphere, cylinder primitives; shapes as solid surfaces or refinement regions |
+| Mesh | Base mesh box with named faces; automatic sizing (wind tunnel, or snug box for internal flow); snappyHexMesh with surface refinement, refinement regions and by distance, feature edges and boundary layers; fluid outside or inside a shape; checkMesh report |
+| Physics | Incompressible flow, steady (simpleFoam) and transient (pimpleFoam); laminar, k-epsilon, realizable k-epsilon, k-omega SST, Spalart-Allmaras; potential-flow start; small fluid list |
+| Boundaries | Velocity inlet, pressure outlet, wall, moving wall, slip, symmetry / empty; sensible defaults from patch names and types |
+| Run | Serial or parallel (automatic decomposition and reconstruction); live residual plot; convergence target; drag and lift coefficients with a live plot and forces in newtons; log; stop |
+| Results | Built-in 3D view (mesh, slices, surface colouring); y+, wall shear stress, vorticity and Q computed on demand; one click to ParaView |
+
+Everything else a commercial front-end offers (heat transfer, free surface,
+rotating machinery, STEP import, …) is listed with its status in
+[docs/feature-map.md](docs/feature-map.md).
+
+## Requirements
+
+- Windows 10/11 with WSL 2, or Linux.
+- OpenFOAM from openfoam.com (tested with v2506).
+- Python 3.11 or newer.
+- Optional: [ParaView](https://www.paraview.org) for detailed post-processing.
+
+OpenFOAM inside WSL (Ubuntu), if you do not have it yet:
+
+```bash
+wsl --install -d Ubuntu-24.04
+```
+
+then, inside Ubuntu:
+
+```bash
+curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+sudo apt-get install openfoam2506-default
+```
+
+## Install
+
+With [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv venv --python 3.13 .venv
+uv pip install --python .venv/Scripts/python.exe -e ".[gui,dev]"
+```
+
+(on Linux the interpreter is `.venv/bin/python`), or with plain pip:
+`pip install -e ".[gui]"`.
+
+## Use
+
+Desktop application:
+
+```bash
+.venv/Scripts/python.exe -m easyfoam.gui.app
+```
+
+Then *File > New from example* (air flow past a sphere, laminar flow in a pipe,
+or the lid-driven cavity), press **Generate mesh** (F5) and **Run** (F6). The steps on the left go in order: Geometry, Mesh,
+Physics, Boundaries, Run, Results.
+
+Command line, same operations:
+
+```bash
+easyfoam runtimes                       # which OpenFOAM installations were found
+easyfoam new mycase --example sphere    # create a project
+easyfoam import-stl mycase part.stl --fit
+easyfoam mesh mycase
+easyfoam run mycase --np 8
+easyfoam info mycase
+```
+
+## Checked against theory
+
+The pipe example (Re = 50) is part of the test suite: the centre-line speed must
+come out at twice the mean speed (Hagen-Poiseuille). On the example's coarse
+24,000-cell mesh it gives 1.93 against 2.0, and a pressure gradient of 3.15
+against the exact 3.2 m²/s² per metre.
+
+![Pipe flow](docs/images/Pipe.png)
+
+## How a case is laid out
+
+```
+mycase/
+  easyfoam.json        the project (everything you chose)
+  mycase.foam          marker file for ParaView
+  system/ constant/ 0/ ordinary OpenFOAM dictionaries, regenerated from the project
+  log.blockMesh …      the output of each tool
+  .easyfoam/mesh.sh    the exact script that was run; rerun it by hand if you like
+```
+
+## Develop
+
+```bash
+.venv/Scripts/python.exe -m pytest                    # everything, incl. real OpenFOAM runs
+.venv/Scripts/python.exe -m pytest -m "not openfoam"  # fast tests only
+.venv/Scripts/python.exe -m ruff check easyfoam tests
+```
+
+Design notes are in [docs/design.md](docs/design.md).
+
+## Clean-room statement
+
+EasyFOAM is an independent work. Its feature list was informed by the public
+websites and documentation of existing tools; no proprietary program was
+reverse engineered, decompiled or copied. See
+[docs/feature-map.md](docs/feature-map.md) for the rules contributors follow.
+
+## Licence and trademarks
+
+GPL-3.0-or-later, see [LICENSE](LICENSE).
+
+This offering is not approved or endorsed by OpenCFD Limited, producer and
+distributor of the OpenFOAM software via www.openfoam.com, and owner of the
+OPENFOAM® and OpenCFD® trade marks. It is not affiliated with SIMFLOW
+Technologies or any other GUI vendor.

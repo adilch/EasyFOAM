@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "easyfoam"
+version = "0.2.0"
+description = "An open-source desktop front-end for OpenFOAM: geometry, meshing, case setup, run and results in one window."
+readme = "README.md"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.11"
+keywords = ["cfd", "openfoam", "gui", "snappyHexMesh", "simulation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+gui = [
+    "PySide6-Essentials>=6.7",
+    "pyvista>=0.44",
+    "pyvistaqt>=0.11",
+    "pyqtgraph>=0.13",
+]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+easyfoam = "easyfoam.cli:main"
+
+[project.gui-scripts]
+easyfoam-gui = "easyfoam.gui.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["easyfoam"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "openfoam: needs a working OpenFOAM runtime (slow, runs real meshing/solving)",
+    "gui: needs the Qt GUI dependencies",
+]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 116
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["B905"]  # zip() over fixed-size xyz triples
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
