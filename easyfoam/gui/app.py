@@ -21,12 +21,12 @@ def save_snapshot(window, path: Path) -> None:
 
     pixmap = window.grab()
     viewer = window.viewer
-    if viewer is not None:
+    if viewer is not None and viewer.isVisible():
         image = viewer.screenshot()
         height, width = image.shape[:2]
         data = image[:, :, :3].copy().tobytes()
         frame = QImage(data, width, height, 3 * width, QImage.Format.Format_RGB888)
-        target = QRect(viewer.mapTo(window, QPoint(0, 0)), viewer.size())
+        target = QRect(viewer.plotter.mapTo(window, QPoint(0, 0)), viewer.plotter.size())
         painter = QPainter(pixmap)
         painter.drawImage(target, frame)
         painter.end()
@@ -50,6 +50,9 @@ def main(argv: list[str] | None = None) -> int:
 
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setApplicationName("EasyFOAM")
+    from easyfoam.gui.style import apply_style
+
+    apply_style(app)
     window = MainWindow()
     window.show()
     if args.case:

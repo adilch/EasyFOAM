@@ -10,7 +10,7 @@ Incompressible external and internal flow from STL or primitives:
 base mesh, snappyHexMesh, boundary presets, parallel run, live residuals,
 built-in 3D view, ParaView hand-off, command line. Back-end: WSL / Linux.
 
-## v0.2 - everyday aerodynamics and pipe flow (this version)
+## v0.2 - everyday aerodynamics and pipe flow (done)
 
 Done:
 
@@ -23,24 +23,54 @@ Done:
   automatically, snug base mesh; pipe example checked against Hagen-Poiseuille.
 - Spalart-Allmaras and realizable k-epsilon.
 
-Still open from this milestone:
+## v0.3 - made to be easy (done)
 
-- Probes and field statistics monitors.
-- Renaming patches after meshing; gap refinement.
+Done:
+
+- Interface overhaul: start page with examples and recent projects, icon
+  toolbar and menus, step list with status and summaries, pre-run checklist,
+  Back / Next, tooltips, view buttons, highlighting of the selected shape or
+  boundary, progress bar. Icons are SVG (Lucide plus EasyFOAM's own).
+- Graceful stop that saves the current state; continuing a run; the final
+  state is always saved even off the save interval.
+- Probes with a live plot; frontal-area estimate for the force monitor.
+- Renaming shapes (and with them their boundaries).
 - Dragging the "point inside the fluid" in the 3D view.
-- checkMesh result shown in 3D (bad cells highlighted).
-- Graceful stop that writes the current state; continuing a run.
-- Estimating the reference (frontal) area from the geometry.
 
-## v0.3 - heat and free surface
+Still open:
+
+- Field statistics monitors (min / max / average).
+- Gap refinement.
+- checkMesh result shown in 3D (bad cells highlighted).
+- Renaming single regions of an STL.
+
+## v0.4 - free surface for hydraulic structures (this version)
+
+Done:
+
+- Water and air with a free surface (interFoam): gravity, surface tension,
+  both fluids' properties, adaptive time step limited by the interface.
+- Water placed at the start as boxes or by filling to a level.
+- Boundaries for channels, weirs and spillways: inlet by flow rate that follows
+  the water level, open atmosphere, free outflow; flow-rate inlet and open
+  boundary also for single-fluid flow.
+- Water-surface view coloured by speed; share of water in the domain while running.
+- Examples: flow over a weir (compared with the weir formula) and a dam break.
+
+Still open for hydraulics:
+
+- Outlet with a fixed tailwater level; wave generation and absorption.
+- Monitors for discharge through a boundary and for the water level at a point.
+- Sharper interface capturing (interIsoFoam); sediment and air entrainment are out of scope for now.
+- STEP import for real spillway geometry (STL works today).
+
+## v0.4.x - heat
 
 - Buoyant heat transfer (buoyantSimpleFoam / buoyantPimpleFoam), temperature
   and heat-flux boundaries, thermophysical material database.
-- Free-surface flow (interFoam): phase initialisation by region, gravity,
-  hydrostatic pressure, open-channel and wave boundaries.
 - Passive scalar transport.
 
-## v0.4 - more ways in and out
+## v0.5 - more ways in and out
 
 - STEP / IGES import (through OCP or gmsh), units on import, STL check and repair.
 - Mesh import: Fluent, Gmsh, existing OpenFOAM cases (read boundary and fields).
@@ -48,7 +78,7 @@ Still open from this milestone:
 - Foundation-line (openfoam.org) dictionary dialect.
 - Windows installer.
 
-## v0.5 - rotating machinery and regions
+## v0.6 - rotating machinery and regions
 
 - Cell zones, MRF, porous zones.
 - Cyclic / AMI interfaces, sliding mesh.

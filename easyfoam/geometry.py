@@ -220,3 +220,61 @@ def fit_base_mesh(
     base.min = new_min
     base.cells = cells
     base.max = [a + n * cell for a, n in zip(new_min, cells)]
+
+
+def _unit(vector) -> np.ndarray:
+    v = np.asarray(vector, dtype=float)
+    length = float(np.linalg.norm(v))
+    if length == 0:
+        raise ValueError("the direction must not be zero")
+    return v / length
+
+
+def frontal_area(project: Project, case_dir: Path, direction) -> float:
+    """Area of the solid shapes as seen along a direction (their silhouette), in m2.
+
+    Exact for convex bodies; for hollow or overlapping shapes it is an upper estimate.
+    """
+    d = _unit(direction)
+    total = 0.0
+    for shape in project.shapes:
+        if shape.role != "wall":
+            continue
+        if shape.kind == "sphere":
+            total += math.pi * shape.radius**2
+        elif shape.kind == "box":
+            sx, sy, sz = (hi - lo for lo, hi in zip(shape.min, shape.max))
+            total += abs(d[0]) * sy * sz + abs(d[1]) * sx * sz + abs(d[2]) * sx * sy
+        elif shape.kind == "cylinder":
+            axis = np.asarray(shape.point2, float) - np.asarray(shape.point1, float)
+            length = float(np.linalg.norm(axis))
+            along = abs(float(d @ axis)) / length if length else 1.0
+            total += along * math.pi * shape.radius**2
+            total += math.sqrt(max(0.0, 1.0 - along**2)) * 2.0 * shape.radius * length
+        else:
+            triangles = stl_triangles(Path(case_dir) / "constant" / "triSurface" / shape.file)
+            normals = 0.5 * np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+            total += 0.5 * float(np.abs(normals @ d).sum())
+    return total
+
+
+def rename_shape(project: Project, old: str, new: str) -> str:
+    """Rename a shape and everything that refers to it; returns the name actually used."""
+    new = safe_name(new)
+    shape = next((s for s in project.shapes if s.name == old), None)
+    if shape is None:
+        raise ValueError(f"there is no shape named '{old}'")
+    if new == old:
+        return new
+    if any(s.name == new for s in project.shapes):
+        raise ValueError(f"a shape named '{new}' already exists")
+
+    def moved(name: str) -> str:
+        return new + name[len(old):] if name == old or name.startswith(old + "_") else name
+
+    shape.name = new
+    if project.mesh.fluid_inside == old:
+        project.mesh.fluid_inside = new
+    project.boundaries = {moved(name): value for name, value in project.boundaries.items()}
+    project.forces.patches = [moved(name) for name in project.forces.patches]
+    return new

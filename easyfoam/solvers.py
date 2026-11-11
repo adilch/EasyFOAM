@@ -9,11 +9,13 @@ from dataclasses import dataclass
 class SolverSpec:
     label: str
     steady: bool
+    multiphase: bool = False  # water and air with a free surface
 
 
 SOLVERS: dict[str, SolverSpec] = {
     "simpleFoam": SolverSpec("Incompressible flow, steady (simpleFoam)", steady=True),
     "pimpleFoam": SolverSpec("Incompressible flow, transient (pimpleFoam)", steady=False),
+    "interFoam": SolverSpec("Free surface: water and air (interFoam)", steady=False, multiphase=True),
 }
 
 #: turbulence model -> (label, extra fields it solves for)

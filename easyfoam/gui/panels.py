@@ -15,6 +15,8 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -32,6 +34,8 @@ from PySide6.QtWidgets import (
 
 from easyfoam import geometry
 from easyfoam.foam.boundaryfile import Patch
+from easyfoam.gui.icons import icon
+from easyfoam.gui.style import set_primary
 from easyfoam.gui.widgets import FloatEdit, VectorEdit
 from easyfoam.model import CONSTRAINT_TYPES, FACES, KINDS_FOR_TYPE, BaseFace, Boundary, Project, Shape
 from easyfoam.solvers import MATERIALS, POST_FUNCTIONS, SOLVERS, TURBULENCE, solver_spec
@@ -44,13 +48,34 @@ KIND_LABELS = {
     "slip": "Slip (frictionless)",
     "wall": "Wall (no slip)",
     "movingWall": "Moving wall",
+    "flowRateInlet": "Inlet by flow rate",
+    "freeOutflow": "Free outflow",
+    "atmosphere": "Open to the atmosphere",
 }
+KIND_ICONS = {
+    "velocityInlet": "arrow-right-to-line",
+    "pressureOutlet": "arrow-right-from-line",
+    "slip": "waves",
+    "wall": "brick-wall",
+    "movingWall": "move-horizontal",
+    "flowRateInlet": "droplet",
+    "freeOutflow": "log-out",
+    "atmosphere": "wind",
+    "constraint": "flip-horizontal",
+}
+SHAPE_ICONS = {"stl": "shapes", "box": "box", "sphere": "circle", "cylinder": "cylinder"}
 KIND_HINTS = {
     "velocityInlet": "Fluid enters with this velocity.",
     "pressureOutlet": "Fluid leaves freely at the given pressure (kinematic gauge pressure, p/rho).",
     "slip": "No flow through the surface and no friction along it. Good for far-field sides.",
     "wall": "Solid surface, the fluid sticks to it.",
     "movingWall": "Solid surface that moves with this velocity (e.g. a belt or lid).",
+    "flowRateInlet": (
+        "Fluid enters at this volume flow rate. In free-surface flow the water enters over the "
+        "wetted part of the boundary, whatever the water level is: the usual choice for channels, weirs and spillways."
+    ),
+    "freeOutflow": "Whatever arrives here leaves undisturbed. Use it downstream of a weir or spillway.",
+    "atmosphere": "Open air at ambient pressure: air can move in and out freely. Use it for the top of an open channel.",
     "constraint": "This condition is fixed by the patch type chosen in the mesh.",
 }
 FACE_TYPES = ("patch", "wall", "symmetry", "empty")
@@ -87,6 +112,12 @@ class Panel(QWidget):
         finally:
             self._loading = previous
 
+    def fit_forms(self) -> None:
+        """Let long rows wrap instead of pushing the panel wider than its column."""
+        for form in self.findChildren(QFormLayout):
+            form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+            form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+
     def apply(self, edit: Callable[[], None]) -> None:
         """Run an edit of the project unless the panel is being filled."""
         if self._loading or self.project is None:
@@ -99,6 +130,8 @@ class Panel(QWidget):
 
 
 class GeometryPanel(Panel):
+    selection_changed = Signal(str)  # name of the selected shape
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.case_dir: Path | None = None
@@ -106,17 +139,22 @@ class GeometryPanel(Panel):
         self.shape_list = QListWidget()
         self.shape_list.currentRowChanged.connect(self._show_shape)
 
-        import_button = QPushButton("Import STL…")
+        import_button = QPushButton(icon("import"), " Import STL")
         import_button.clicked.connect(self._import_stl)
-        add_button = QPushButton("Add shape")
+        add_button = QPushButton(icon("plus"), " Add")
         menu = QMenu(add_button)
         for kind, label in (("box", "Box"), ("sphere", "Sphere"), ("cylinder", "Cylinder")):
-            menu.addAction(label, lambda k=kind: self.add_primitive(k))
+            menu.addAction(icon(SHAPE_ICONS[kind]), label, lambda k=kind: self.add_primitive(k))
         add_button.setMenu(menu)
-        remove_button = QPushButton("Remove")
+        remove_button = QPushButton(icon("trash-2"), " Remove")
         remove_button.clicked.connect(self.remove_selected)
+        rename_button = QPushButton(icon("pencil"), " Rename")
+        rename_button.clicked.connect(self._ask_new_name)
+        import_button.setToolTip("Bring in a surface from an STL file (ASCII or binary).")
+        add_button.setToolTip("Add a simple shape: box, sphere or cylinder.")
+        rename_button.setToolTip("The shape's name becomes the name of its boundary in the mesh.")
         buttons = QHBoxLayout()
-        for b in (import_button, add_button, remove_button):
+        for b in (import_button, add_button, rename_button, remove_button):
             buttons.addWidget(b)
 
         self.role = QComboBox()
@@ -139,6 +177,11 @@ class GeometryPanel(Panel):
         self.regions.verticalHeader().setVisible(False)
         self.regions.horizontalHeader().setStretchLastSection(True)
         self._region_types: dict[str, QComboBox] = {}
+        self.level_min.setToolTip("Coarsest refinement on this surface. Each level halves the base cell size.")
+        self.level_max.setToolTip("Finest refinement, used where the surface curves or has sharp edges.")
+        self.layers.setToolTip("Thin cells stacked on the surface to resolve the boundary layer. 0 switches them off.")
+        self.near_distance.setToolTip("Cells closer to the surface than this distance are refined to the level below.")
+        self.region_level.setToolTip("Refinement of all cells inside this region. Each level halves the base cell size.")
 
         self.form = QFormLayout()
         self.form.addRow("Use as", self.role)
@@ -189,7 +232,9 @@ class GeometryPanel(Panel):
             self.shape_list.clear()
             for shape in self.project.shapes:
                 kind = "STL surface" if shape.kind == "stl" else shape.kind
-                self.shape_list.addItem(f"{shape.name}   ({kind})")
+                self.shape_list.addItem(
+                    QListWidgetItem(icon(SHAPE_ICONS.get(shape.kind, "shapes")), f"{shape.name}   ({kind})")
+                )
             if self.project.shapes:
                 self.shape_list.setCurrentRow(max(0, min(select, len(self.project.shapes) - 1)))
         self._show_shape(self.shape_list.currentRow())
@@ -202,6 +247,8 @@ class GeometryPanel(Panel):
 
     def _show_shape(self, _row: int) -> None:
         shape = self.selected()
+        if not self._loading:
+            self.selection_changed.emit(shape.name if shape else "")
         self.details.setEnabled(shape is not None)
         if shape is None:
             return
@@ -293,6 +340,27 @@ class GeometryPanel(Panel):
             self.level_min.setValue(value)
 
     # -- actions
+    def rename_selected(self, new_name: str) -> None:
+        """Rename the selected shape (and with it the boundary it creates)."""
+        shape = self.selected()
+        if shape is None or self.project is None:
+            return
+        row = self.shape_list.currentRow()
+        try:
+            self.apply(lambda: geometry.rename_shape(self.project, shape.name, new_name))
+        except ValueError as exc:
+            QMessageBox.information(self, "Rename", str(exc))
+            return
+        self._refill(select=row)
+
+    def _ask_new_name(self) -> None:
+        shape = self.selected()
+        if shape is None:
+            return
+        name, ok = QInputDialog.getText(self, "Rename shape", "New name", text=shape.name)
+        if ok and name.strip():
+            self.rename_selected(name)
+
     def _unique_name(self, stem: str) -> str:
         taken = {s.name for s in self.project.shapes}
         n = 1
@@ -353,7 +421,8 @@ class MeshPanel(Panel):
             cells_row.addWidget(QLabel(axis))
             cells_row.addWidget(spin, 1)
         self.summary = _hint("")
-        fit = QPushButton("Fit a wind tunnel around the geometry")
+        fit = QPushButton(icon("wand"), " Size the base mesh automatically")
+        fit.setToolTip("A wind tunnel around the shapes for external flow, or a snug box for internal flow.")
         fit.clicked.connect(self._fit)
 
         base_form = QFormLayout()
@@ -390,6 +459,19 @@ class MeshPanel(Panel):
         self.add_layers = QCheckBox("Add boundary layers where shapes ask for them")
         self.auto_location = QCheckBox("Pick the point inside the fluid automatically")
         self.location = VectorEdit()
+        self.snappy.setToolTip(
+            "Refines the base mesh near the shapes and cuts it to their surfaces. "
+            "Switch off to use the plain base mesh."
+        )
+        self.snap.setToolTip("Moves cell corners onto the surfaces so the mesh follows the true shape, not a staircase.")
+        self.add_layers.setToolTip("Adds the boundary-layer cells requested per shape in the Geometry step.")
+        self.auto_location.setToolTip(
+            "EasyFOAM picks a point in the fluid: a corner for external flow, the inside of the chosen shape for internal flow."
+        )
+        self.location.setToolTip(
+            "Any point that lies in the fluid. The mesh is kept on the side of the surfaces where this point is. "
+            "In the 3D view you can drag the red ball."
+        )
         self.fluid_region = QComboBox()
         options = QFormLayout()
         options.addRow("The fluid is", self.fluid_region)
@@ -401,7 +483,8 @@ class MeshPanel(Panel):
         box = QGroupBox("Around the geometry")
         box.setLayout(options)
 
-        self.generate = QPushButton("Generate mesh")
+        self.generate = QPushButton(icon("mesh", "#ffffff"), "  Generate mesh")
+        set_primary(self.generate)
         self.generate.clicked.connect(self.generate_requested)
 
         layout = QVBoxLayout(self)
@@ -410,8 +493,8 @@ class MeshPanel(Panel):
         layout.addWidget(self.faces)
         layout.addWidget(box)
         layout.addWidget(_hint(
-            "For flow inside a part (pipes, ducts) set the point inside the fluid by hand: "
-            "it decides which side of the surfaces is kept."
+            "For flow inside a part (pipes, ducts) choose that part under “The fluid is”. "
+            "To place the point yourself, untick the automatic option and drag the red ball in the 3D view."
         ))
         layout.addStretch(1)
         layout.addWidget(self.generate)
@@ -537,6 +620,16 @@ class PhysicsPanel(Panel):
         self.velocity = VectorEdit()
         self.intensity = FloatEdit()
         self.length = FloatEdit()
+        self.nu.setToolTip(
+            "How easily the fluid flows: kinematic viscosity = dynamic viscosity / density. "
+            "Air is about 1.5e-5 m²/s, water 1e-6 m²/s."
+        )
+        self.intensity.setToolTip(
+            "Strength of the turbulence in the incoming flow as a fraction of its speed. "
+            "0.05 (5 %) is a common guess, 0.01 for a quiet wind tunnel."
+        )
+        self.length.setToolTip("Typical size of the incoming eddies. A common guess is 7 % of the inlet width or body size.")
+        self.velocity.setToolTip("Velocity everywhere at the start. Close to the inlet velocity speeds up convergence.")
         self.numerics = QComboBox()
         self.numerics.addItem("Robust (first-order turbulence, forgiving)", "robust")
         self.numerics.addItem("Accurate (second order, needs a good mesh)", "accurate")
@@ -564,15 +657,51 @@ class PhysicsPanel(Panel):
         start_box = QGroupBox("Starting state and inlet turbulence")
         start_box.setLayout(start)
 
+        self.gravity = VectorEdit()
+        self.gravity.setToolTip("Gravity vector. On Earth with z pointing up: (0, 0, -9.81).")
+        self.air_nu = FloatEdit()
+        self.air_rho = FloatEdit()
+        self.surface_tension = FloatEdit()
+        self.surface_tension.setToolTip("Surface tension between water and air: 0.07 N/m at room temperature.")
+        self.water_table = QTableWidget(0, 6)
+        self.water_table.setHorizontalHeaderLabels(["x min", "y min", "z min", "x max", "y max", "z max"])
+        self.water_table.verticalHeader().setVisible(False)
+        self.water_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.water_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.water_table.setFixedHeight(112)
+        self.water_table.setToolTip("Boxes that are full of water at the start. Everything else starts as air.")
+        self.water_table.itemChanged.connect(self._water_edited)
+        fill_button = QPushButton(icon("droplet"), " Fill to a level")
+        fill_button.setToolTip("Fill the whole base mesh with water up to a height.")
+        fill_button.clicked.connect(self._ask_level)
+        add_region = QPushButton(icon("plus"), " Add box")
+        add_region.clicked.connect(lambda: self.add_water_region())
+        remove_region = QPushButton(icon("trash-2"), " Remove")
+        remove_region.clicked.connect(self.remove_water_region)
+        water_buttons = QHBoxLayout()
+        for button in (fill_button, add_region, remove_region):
+            water_buttons.addWidget(button)
+        water_buttons.addStretch(1)
+        water = QFormLayout()
+        water.addRow("Gravity [m/s²]", self.gravity)
+        water.addRow("Air viscosity [m²/s]", self.air_nu)
+        water.addRow("Air density [kg/m³]", self.air_rho)
+        water.addRow("Surface tension [N/m]", self.surface_tension)
+        water.addRow(_hint("Water at the start, as boxes [m]. The fluid chosen above is the water."))
+        water.addRow(self.water_table)
+        water.addRow(water_buttons)
+        self.water_box = QGroupBox("Water and air (free surface)")
+        self.water_box.setLayout(water)
+
         layout = QVBoxLayout(self)
-        for box in (flow_box, fluid_box, start_box):
+        for box in (flow_box, fluid_box, self.water_box, start_box):
             layout.addWidget(box)
         layout.addWidget(_hint(
             "Pressure is the kinematic pressure p/ρ in m²/s². Multiply by the density to get pascals."
         ))
         layout.addStretch(1)
 
-        self.solver.currentIndexChanged.connect(lambda: self._set("solver", self.solver.currentData()))
+        self.solver.currentIndexChanged.connect(self._solver_chosen)
         self.turbulence.currentIndexChanged.connect(
             lambda: self._set("turbulence", self.turbulence.currentData())
         )
@@ -584,6 +713,10 @@ class PhysicsPanel(Panel):
         self.intensity.changed.connect(lambda v: self._set("turbulence_intensity", v))
         self.length.changed.connect(lambda v: self._set("turbulence_length", v))
         self.potential.toggled.connect(lambda v: self._set("potential_init", v))
+        self.gravity.changed.connect(lambda: self._set("gravity", self.gravity.value()))
+        self.air_nu.changed.connect(lambda v: self._set("air_nu", v))
+        self.air_rho.changed.connect(lambda v: self._set("air_rho", v))
+        self.surface_tension.changed.connect(lambda v: self._set("surface_tension", v))
 
     def load(self, project: Project) -> None:
         self.project = project
@@ -600,6 +733,83 @@ class PhysicsPanel(Panel):
             self.intensity.set_value(ph.turbulence_intensity)
             self.length.set_value(ph.turbulence_length)
             self.potential.setChecked(ph.potential_init)
+            self.gravity.set_value(ph.gravity)
+            self.air_nu.set_value(ph.air_nu)
+            self.air_rho.set_value(ph.air_rho)
+            self.surface_tension.set_value(ph.surface_tension)
+        multiphase = ph.solver in SOLVERS and SOLVERS[ph.solver].multiphase
+        self.water_box.setVisible(multiphase)
+        self.potential.setEnabled(not multiphase)
+        self._fill_water()
+
+    def _solver_chosen(self) -> None:
+        name = self.solver.currentData()
+
+        def edit():
+            ph = self.project.physics
+            ph.solver = name
+            if SOLVERS[name].multiphase and ph.rho < 100:  # the main fluid of a free-surface case is the water
+                ph.material = "water"
+                ph.nu, ph.rho = MATERIALS["water"]
+
+        self.apply(edit)
+        if self.project is not None and not self._loading:
+            self.load(self.project)
+
+    def _fill_water(self) -> None:
+        with self.loading():
+            regions = self.project.physics.water_regions
+            self.water_table.setRowCount(len(regions))
+            for row, box in enumerate(regions):
+                for column, value in enumerate(box[:6]):
+                    self.water_table.setItem(row, column, QTableWidgetItem(f"{value:g}"))
+
+    def add_water_region(self, box=None) -> None:
+        """Add a box of water (default: the lower half of the base mesh)."""
+        if self.project is None:
+            return
+        if box is None:
+            lo, hi = self.project.mesh.base.min, self.project.mesh.base.max
+            box = [*lo, hi[0], hi[1], (lo[2] + hi[2]) / 2]
+        new = [float(c) for c in box]
+        self.apply(lambda: self.project.physics.water_regions.append(new))
+        self._fill_water()
+
+    def fill_to_level(self, level: float) -> None:
+        """Water everywhere in the base mesh below a height (along z)."""
+        lo, hi = self.project.mesh.base.min, self.project.mesh.base.max
+        self.add_water_region([lo[0], lo[1], lo[2], hi[0], hi[1], level])
+
+    def _ask_level(self) -> None:
+        if self.project is None:
+            return
+        lo, hi = self.project.mesh.base.min, self.project.mesh.base.max
+        level, ok = QInputDialog.getDouble(
+            self, "Fill to a level", "Water surface height z [m]", (lo[2] + hi[2]) / 2, lo[2], hi[2], 4
+        )
+        if ok:
+            self.fill_to_level(level)
+
+    def remove_water_region(self) -> None:
+        row = self.water_table.currentRow()
+        if self.project is None or not 0 <= row < len(self.project.physics.water_regions):
+            return
+        self.apply(lambda: self.project.physics.water_regions.pop(row))
+        self._fill_water()
+
+    def _water_edited(self, item) -> None:
+        if self._loading or self.project is None:
+            return
+        try:
+            value = float(item.text().replace(",", "."))
+        except ValueError:
+            self._fill_water()
+            return
+
+        def edit():
+            self.project.physics.water_regions[item.row()][item.column()] = value
+
+        self.apply(edit)
 
     def _set(self, attribute: str, value) -> None:
         self.apply(lambda: setattr(self.project.physics, attribute, value))
@@ -632,6 +842,8 @@ class PhysicsPanel(Panel):
 
 
 class BoundaryPanel(Panel):
+    selection_changed = Signal(str)  # name of the selected boundary
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.patches: list[Patch] = []
@@ -641,11 +853,17 @@ class BoundaryPanel(Panel):
         self.velocity = VectorEdit()
         self.pressure = FloatEdit()
         self.hint = _hint("")
+        self.flow_rate = FloatEdit()
+        self.flow_rate.setToolTip("Volume flow rate through this boundary in cubic metres per second.")
+        self.water_fraction = FloatEdit(1.0)
+        self.water_fraction.setToolTip("Free-surface flow: 1 if water enters here, 0 if air enters.")
 
         self.form = QFormLayout()
         self.form.addRow("Condition", self.kind)
         self.form.addRow("Velocity [m/s]", self.velocity)
         self.form.addRow("Pressure p/ρ [m²/s²]", self.pressure)
+        self.form.addRow("Flow rate [m³/s]", self.flow_rate)
+        self.form.addRow("Share of water (0–1)", self.water_fraction)
         self.form.addRow(self.hint)
         self.details = QGroupBox("Selected boundary")
         self.details.setLayout(self.form)
@@ -659,6 +877,8 @@ class BoundaryPanel(Panel):
         self.kind.currentIndexChanged.connect(self._edited)
         self.velocity.changed.connect(self._edited)
         self.pressure.changed.connect(lambda _v: self._edited())
+        self.flow_rate.changed.connect(lambda _v: self._edited())
+        self.water_fraction.changed.connect(lambda _v: self._edited())
 
     def load(self, project: Project, patches: Sequence[Patch], from_mesh: bool = False) -> None:
         self.project, self.patches = project, list(patches)
@@ -671,6 +891,7 @@ class BoundaryPanel(Panel):
             for patch in self.patches:
                 item = QListWidgetItem(f"{patch.name}   ({patch.type})")
                 item.setData(NAME_ROLE, patch.name)
+                item.setIcon(icon(KIND_ICONS[project.boundary_for(patch.name, patch.type).kind]))
                 self.patch_list.addItem(item)
             if self.patches:
                 self.patch_list.setCurrentRow(0)
@@ -682,6 +903,8 @@ class BoundaryPanel(Panel):
 
     def _show_patch(self, _row: int) -> None:
         patch = self.selected()
+        if not self._loading:
+            self.selection_changed.emit(patch.name if patch else "")
         self.details.setEnabled(patch is not None)
         if patch is None or self.project is None:
             return
@@ -690,20 +913,25 @@ class BoundaryPanel(Panel):
             self.kind.clear()
             kinds = KINDS_FOR_TYPE.get(patch.type, ())
             if patch.type in CONSTRAINT_TYPES or not kinds:
-                self.kind.addItem(f"Set by the mesh ({patch.type})", "constraint")
+                self.kind.addItem(icon(KIND_ICONS["constraint"]), f"Set by the mesh ({patch.type})", "constraint")
                 self.kind.setEnabled(False)
             else:
                 for kind in kinds:
-                    self.kind.addItem(KIND_LABELS[kind], kind)
+                    self.kind.addItem(icon(KIND_ICONS[kind]), KIND_LABELS[kind], kind)
                 self.kind.setEnabled(True)
                 self.kind.setCurrentIndex(max(0, self.kind.findData(bc.kind)))
             self.velocity.set_value(bc.velocity)
             self.pressure.set_value(bc.pressure)
+            self.flow_rate.set_value(bc.flow_rate)
+            self.water_fraction.set_value(bc.water_fraction)
         self._show_rows(bc.kind)
 
     def _show_rows(self, kind: str) -> None:
         self.form.setRowVisible(self.velocity, kind in ("velocityInlet", "movingWall"))
         self.form.setRowVisible(self.pressure, kind == "pressureOutlet")
+        self.form.setRowVisible(self.flow_rate, kind == "flowRateInlet")
+        multiphase = self.project is not None and SOLVERS.get(self.project.physics.solver, SOLVERS["simpleFoam"]).multiphase
+        self.form.setRowVisible(self.water_fraction, kind == "velocityInlet" and multiphase)
         self.hint.setText(KIND_HINTS.get(kind, ""))
 
     def _edited(self) -> None:
@@ -714,12 +942,16 @@ class BoundaryPanel(Panel):
 
         def edit():
             self.project.boundaries[patch.name] = Boundary(
-                kind=kind, velocity=self.velocity.value(), pressure=self.pressure.value()
+                kind=kind, velocity=self.velocity.value(), pressure=self.pressure.value(),
+                flow_rate=self.flow_rate.value(), water_fraction=self.water_fraction.value(),
             )
 
         self.apply(edit)
         if not self._loading:
             self._show_rows(kind)
+            current = self.patch_list.currentItem()
+            if current is not None:
+                current.setIcon(icon(KIND_ICONS[kind]))
 
 
 # ---------------------------------------------------------------------------
@@ -728,6 +960,7 @@ class BoundaryPanel(Panel):
 class RunPanel(Panel):
     run_requested = Signal()
     stop_requested = Signal()
+    continue_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -736,13 +969,24 @@ class RunPanel(Panel):
         self.delta_t = FloatEdit()
         self.write_label = QLabel()
         self.write_interval = FloatEdit()
-        self.adjust = QCheckBox("Adapt the time step to keep the Courant number below")
+        self.adjust = QCheckBox("Keep the Courant number below")
+        self.adjust.setToolTip(
+            "Transient runs: the time step is adapted so the flow crosses at most this many cells per step. "
+            "1 or less is safe; larger is faster but less accurate."
+        )
         self.max_courant = FloatEdit()
         self.processors = _spin(1, max(1, os.cpu_count() or 1))
         self.purge = _spin(0, 1000)
         self.purge.setSpecialValueText("keep all")
         self.residual_target = FloatEdit()
-        self.forces_on = QCheckBox("Record drag and lift coefficients every iteration")
+        self.case_dir: Path | None = None
+        self.residual_target.setToolTip(
+            "A steady run stops by itself once every residual has dropped below this value. 0 runs all iterations."
+        )
+        self.processors.setToolTip(
+            "Number of processor cores to use. The case is split up and put back together automatically."
+        )
+        self.forces_on = QCheckBox("Record drag and lift every iteration")
         self.force_patches = QLineEdit()
         self.force_patches.setPlaceholderText("all surfaces that come from shapes")
         self.ref_area = FloatEdit()
@@ -760,36 +1004,77 @@ class RunPanel(Panel):
         self.form.addRow(self.write_label, self.write_interval)
         self.form.addRow("Saved results to keep", self.purge)
         self.form.addRow("Processor cores", self.processors)
-        self.form.addRow("Stop when residuals fall below", self.residual_target)
+        self.form.addRow("Stop below residual", self.residual_target)
         box = QGroupBox("Run control")
         box.setLayout(self.form)
 
-        self.run_button = QPushButton("Run")
-        self.stop_button = QPushButton("Stop")
+        self.run_button = QPushButton(icon("play", "#ffffff"), "  Run")
+        set_primary(self.run_button)
+        self.stop_button = QPushButton(icon("square"), " Stop")
+        self.stop_button.setToolTip("Once: save the current state and finish. Twice: end at once.")
         self.stop_button.setEnabled(False)
         self.run_button.clicked.connect(self.run_requested)
         self.stop_button.clicked.connect(self.stop_requested)
+        self.continue_button = QPushButton(icon("step-forward"), " Continue")
+        self.continue_button.setToolTip(
+            "Carry on from the latest saved result, for example after raising the number of iterations."
+        )
+        self.continue_button.setEnabled(False)
+        self.continue_button.clicked.connect(self.continue_requested)
         buttons = QHBoxLayout()
-        buttons.addWidget(self.run_button)
-        buttons.addWidget(self.stop_button)
+        buttons.addWidget(self.run_button, 2)
+        buttons.addWidget(self.continue_button, 1)
+        buttons.addWidget(self.stop_button, 1)
         self.status = QLabel("")
         self.status.setWordWrap(True)
+        self.issues = QLabel()
+        self.issues.setWordWrap(True)
 
         layout = QVBoxLayout(self)
         forces = QFormLayout()
         forces.addRow(self.forces_on)
         forces.addRow("On boundaries", self.force_patches)
-        forces.addRow("Reference area [m²]", self.ref_area)
+        self.estimate_area = QPushButton(icon("ruler"), "")
+        self.estimate_area.setToolTip("Estimate the frontal area from the shapes, seen along the drag direction.")
+        self.estimate_area.clicked.connect(self._estimate_area)
+        area_row = QHBoxLayout()
+        area_row.addWidget(self.ref_area, 1)
+        area_row.addWidget(self.estimate_area)
+        forces.addRow("Reference area [m²]", area_row)
         forces.addRow("Reference length [m]", self.ref_length)
-        forces.addRow("Reference speed [m/s], 0 = inlet", self.ref_velocity)
+        forces.addRow("Speed [m/s] (0 = inlet)", self.ref_velocity)
         forces.addRow("Drag direction", self.drag_dir)
         forces.addRow("Lift direction", self.lift_dir)
-        force_box = QGroupBox("Forces")
+        self.force_box = force_box = QGroupBox("Forces")
         force_box.setLayout(forces)
+
+        self.probe_table = QTableWidget(0, 3)
+        self.probe_table.setHorizontalHeaderLabels(["x [m]", "y [m]", "z [m]"])
+        self.probe_table.verticalHeader().setVisible(False)
+        self.probe_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.probe_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.probe_table.setFixedHeight(104)
+        self.probe_table.itemChanged.connect(self._probe_edited)
+        add_probe = QPushButton(icon("plus"), " Add point")
+        add_probe.clicked.connect(lambda: self.add_probe())
+        remove_probe = QPushButton(icon("trash-2"), " Remove")
+        remove_probe.clicked.connect(self.remove_probe)
+        probe_buttons = QHBoxLayout()
+        probe_buttons.addWidget(add_probe)
+        probe_buttons.addWidget(remove_probe)
+        probe_buttons.addStretch(1)
+        probes = QVBoxLayout()
+        probes.addWidget(_hint("Pressure and speed are recorded at these points every iteration."))
+        probes.addWidget(self.probe_table)
+        probes.addLayout(probe_buttons)
+        probe_box = QGroupBox("Probes")
+        probe_box.setLayout(probes)
 
         layout.addWidget(box)
         layout.addWidget(force_box)
+        layout.addWidget(probe_box)
         layout.addWidget(_hint("Running replaces earlier results of this case."))
+        layout.addWidget(self.issues)
         layout.addLayout(buttons)
         layout.addWidget(self.status)
         layout.addStretch(1)
@@ -810,8 +1095,8 @@ class RunPanel(Panel):
         self.drag_dir.changed.connect(lambda: self._force("drag_dir", self.drag_dir.value()))
         self.lift_dir.changed.connect(lambda: self._force("lift_dir", self.lift_dir.value()))
 
-    def load(self, project: Project) -> None:
-        self.project = project
+    def load(self, project: Project, case_dir: Path | None = None) -> None:
+        self.project, self.case_dir = project, case_dir
         run = project.run
         steady = solver_spec(project.physics.solver).steady
         with self.loading():
@@ -837,17 +1122,92 @@ class RunPanel(Panel):
             widget.setEnabled(not steady)
         self.residual_target.setEnabled(steady)
         self._enable_force_inputs(project.forces.enabled)
+        self._fill_probes()
+        multiphase = solver_spec(project.physics.solver).multiphase
+        self.force_box.setEnabled(not multiphase)
+        self.force_box.setToolTip(
+            "Drag and lift coefficients assume one fluid; they are not recorded in free-surface runs." if multiphase else ""
+        )
+        if multiphase:
+            self.adjust.setEnabled(False)  # free-surface runs always adapt the time step
 
     def _force(self, attribute: str, value) -> None:
         self.apply(lambda: setattr(self.project.forces, attribute, value))
 
     def _enable_force_inputs(self, on: bool) -> None:
-        for widget in self._force_inputs:
+        for widget in (*self._force_inputs, self.estimate_area):
             widget.setEnabled(on)
 
     def _forces_toggled(self, on: bool) -> None:
         self._force("enabled", on)
         self._enable_force_inputs(on)
+
+    def _estimate_area(self) -> None:
+        if self.project is None:
+            return
+        try:
+            area = geometry.frontal_area(self.project, self.case_dir or Path("."), self.drag_dir.value())
+        except (ValueError, OSError) as exc:
+            QMessageBox.information(self, "Reference area", str(exc))
+            return
+        if area <= 0:
+            QMessageBox.information(self, "Reference area", "There are no solid shapes to measure.")
+            return
+        self.ref_area.set_value(area)
+        self._force("ref_area", area)
+
+    def show_issues(self, issues) -> None:
+        """List what stands in the way of a run (or say that all is ready)."""
+        if issues:
+            self.issues.setProperty("role", "issues")
+            self.issues.setText("Before running:\n" + "\n".join(f"•  {issue.text}" for issue in issues))
+        else:
+            self.issues.setProperty("role", "ready")
+            self.issues.setText("Ready to run.")
+        self.issues.style().unpolish(self.issues)
+        self.issues.style().polish(self.issues)
+
+    def _fill_probes(self) -> None:
+        with self.loading():
+            self.probe_table.setRowCount(len(self.project.probes))
+            for row, point in enumerate(self.project.probes):
+                for column, value in enumerate(point):
+                    self.probe_table.setItem(row, column, QTableWidgetItem(f"{value:g}"))
+
+    def add_probe(self, point=None) -> None:
+        if self.project is None:
+            return
+        new = [float(c) for c in (point or (0.0, 0.0, 0.0))]
+        self.apply(lambda: self.project.probes.append(new))
+        self._fill_probes()
+
+    def set_probe(self, row: int, point) -> None:
+        def edit():
+            self.project.probes[row] = [float(c) for c in point]
+
+        self.apply(edit)
+        self._fill_probes()
+
+    def remove_probe(self) -> None:
+        row = self.probe_table.currentRow()
+        if self.project is None or not 0 <= row < len(self.project.probes):
+            return
+        self.apply(lambda: self.project.probes.pop(row))
+        self._fill_probes()
+
+    def _probe_edited(self, item) -> None:
+        if self._loading or self.project is None:
+            return
+        try:
+            value = float(item.text().replace(",", "."))
+        except ValueError:
+            self._fill_probes()
+            return
+
+        def edit():
+            self.project.probes[item.row()][item.column()] = value
+
+        self.apply(edit)
 
     def _patches_edited(self) -> None:
         names = [n.strip() for n in self.force_patches.text().split(",") if n.strip()]
@@ -880,6 +1240,7 @@ class ResultsPanel(Panel):
         self.mode.addItem("Slice through the flow", "slice")
         self.mode.addItem("On the surfaces", "surface")
         self.mode.addItem("Mesh only", "mesh")
+        self.mode.addItem("Water surface (free-surface runs)", "water")
         self.normal = QComboBox()
         for axis in "yzx":
             self.normal.addItem(f"Normal to {axis}", axis)
@@ -901,7 +1262,7 @@ class ResultsPanel(Panel):
         self.function = QComboBox()
         for key, label in POST_FUNCTIONS.items():
             self.function.addItem(label, key)
-        self.compute = QPushButton("Compute for the latest result")
+        self.compute = QPushButton(icon("calculator"), " Compute for the latest result")
         self.compute.clicked.connect(lambda: self.compute_requested.emit(self.function.currentData()))
         calc = QFormLayout()
         calc.addRow("Quantity", self.function)
@@ -909,9 +1270,9 @@ class ResultsPanel(Panel):
         calc_box = QGroupBox("Derived quantities")
         calc_box.setLayout(calc)
 
-        refresh = QPushButton("Reload results")
+        refresh = QPushButton(icon("refresh-cw"), " Reload results")
         refresh.clicked.connect(self.refresh_requested)
-        paraview = QPushButton("Open in ParaView")
+        paraview = QPushButton(icon("external-link"), " Open in ParaView")
         paraview.clicked.connect(self.paraview_requested)
         self.info = _hint("")
 

@@ -21,7 +21,7 @@ FACES = ("xMin", "xMax", "yMin", "yMax", "zMin", "zMax")
 CONSTRAINT_TYPES = ("symmetry", "symmetryPlane", "empty", "wedge", "cyclic", "cyclicAMI", "processor")
 #: boundary kinds the user may pick, per patch type
 KINDS_FOR_TYPE = {
-    "patch": ("velocityInlet", "pressureOutlet", "slip"),
+    "patch": ("velocityInlet", "flowRateInlet", "pressureOutlet", "freeOutflow", "atmosphere", "slip"),
     "wall": ("wall", "movingWall", "slip"),
 }
 
@@ -101,13 +101,22 @@ class Physics:
     turbulence_length: float = 0.1  # m
     numerics: str = "robust"  # robust | accurate
     potential_init: bool = False  # start from a potential-flow solution
+    # free-surface flow: the main fluid above is the water, the second fluid is the air
+    gravity: list[float] = _vec(0, 0, -9.81)  # m/s2
+    air_nu: float = 1.48e-05
+    air_rho: float = 1.2
+    surface_tension: float = 0.07  # N/m
+    #: boxes filled with water at the start, each [x0, y0, z0, x1, y1, z1]
+    water_regions: list[list[float]] = field(default_factory=list)
 
 
 @dataclass
 class Boundary:
     kind: str = "wall"  # velocityInlet | pressureOutlet | wall | movingWall | slip | constraint
     velocity: list[float] = _vec(0, 0, 0)
-    pressure: float = 0.0  # kinematic gauge pressure p/rho, m2/s2
+    pressure: float = 0.0  # kinematic gauge pressure p/rho, m2/s2 (pascals in free-surface flow)
+    flow_rate: float = 0.0  # m3/s, for a flow-rate inlet
+    water_fraction: float = 1.0  # free-surface flow: share of water in a velocity inlet (0 = air)
 
 
 @dataclass
@@ -147,6 +156,7 @@ class Project:
     boundaries: dict[str, Boundary] = field(default_factory=dict)
     run: RunSettings = field(default_factory=RunSettings)
     forces: ForceMonitor = field(default_factory=ForceMonitor)
+    probes: list[list[float]] = field(default_factory=list)  # points where p and U are recorded
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -181,6 +191,8 @@ def default_boundary(patch: str, patch_type: str) -> Boundary:
     if patch_type == "wall":
         return Boundary(kind="wall")
     lowered = patch.lower()
+    if "atmos" in lowered:
+        return Boundary(kind="atmosphere")
     if "inlet" in lowered or "inflow" in lowered:
         return Boundary(kind="velocityInlet")
     if "outlet" in lowered or "outflow" in lowered:

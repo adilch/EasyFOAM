@@ -59,7 +59,7 @@ current version, through WSL or natively), keeps **plain case folders** that
 remain usable by hand, and has no cell or core limits. That is the space
 EasyFOAM aims at. If that distinction does not matter to you, use BARAM.
 
-## Where EasyFOAM stands (v0.2)
+## Where EasyFOAM stands (v0.4)
 
 Legend: done = works and is tested end to end; partial; planned = see roadmap.
 
@@ -81,16 +81,25 @@ Legend: done = works and is tested end to end; partial; planned = see roadmap.
 | Incompressible flow, steady and transient (simpleFoam, pimpleFoam) | done |
 | Laminar, k-epsilon, realizable k-epsilon, k-omega SST, Spalart-Allmaras | done |
 | Potential-flow initialisation | done |
-| Heat transfer, compressible, free surface (VoF), rotating machinery, particles, combustion | planned |
+| Free-surface flow of water and air (VoF, interFoam) with gravity and surface tension | done |
+| Initial water regions (boxes, fill to a level); water-surface display; water-volume read-out | done |
+| Hydraulic boundaries: inlet by flow rate that follows the water level, open atmosphere, free outflow | done |
+| Heat transfer, compressible, rotating machinery, particles, combustion | planned |
+| Waves, hydrostatic (water level) outlets, discharge and water-level monitors, isoAdvector | planned |
 | Boundary presets: velocity inlet, pressure outlet, wall, moving wall, slip, symmetry/empty | done |
 | Wider boundary-condition library, time tables, profiles | planned |
 | Material list (air, water, oils) | done (small) |
 | Numerics presets (robust / accurate) | done; per-term editing planned |
 | Parallel run with automatic decomposition and reconstruction | done |
-| Live residual plot, convergence target, solver log, stop button | done |
+| Live residual plot, convergence target, solver log, progress bar | done |
+| Graceful stop (saves first), continue a run, final state always saved | done |
+| Start page, step status badges, pre-run checklist, tooltips, SVG icons | done |
+| Shape and boundary highlighting, view buttons, draggable point inside the fluid | done |
 | Drag and lift coefficients with live plot and forces in newtons | done |
 | y+, wall shear stress, vorticity, Q computed on demand | done |
-| Probes, field statistics monitors | planned |
+| Probes (pressure and speed at points) with live plot | done |
+| Frontal-area estimate, renaming shapes (and so their boundaries) | done |
+| Field statistics monitors, gap refinement, bad cells shown in 3D | planned |
 | Built-in 3D view of geometry, mesh and results with slices | done (basic) |
 | One-click ParaView | done |
 | Parametric studies, parameters and expressions | planned |

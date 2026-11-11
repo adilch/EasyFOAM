@@ -15,6 +15,7 @@ _SOLVE = re.compile(rf"Solving for (\S+), Initial residual = {_NUM}, Final resid
 _COURANT = re.compile(rf"^Courant Number mean: {_NUM} max: {_NUM}")
 _CONTINUITY = re.compile(rf"continuity errors : sum local = {_NUM}, global = {_NUM}")
 _EXEC = re.compile(rf"^ExecutionTime = {_NUM} s")
+_PHASE = re.compile(rf"^Phase-1 volume fraction = {_NUM}")
 _ERROR_MAX_LINES = 20
 
 
@@ -27,6 +28,9 @@ class LogParser:
         #: (time, sum local, global)
         self.continuity: list[tuple[float, float, float]] = []
         self.execution_time: float | None = None
+        #: (time, share of the domain filled with water) for free-surface runs
+        self.water_fraction: list[tuple[float, float]] = []
+        self._phase_this_step = False
         self.finished = False
         self.error: str | None = None
         self._seen_this_step: set[str] = set()
@@ -53,6 +57,7 @@ class LogParser:
             self.times.append(float(m.group(1)))
             self._seen_this_step.clear()
             self._continuity_this_step = False
+            self._phase_this_step = False
             return
 
         m = _COURANT.match(line)
@@ -72,6 +77,13 @@ class LogParser:
         if not self.times:
             return
         now = self.times[-1]
+
+        m = _PHASE.match(line)
+        if m:
+            if not self._phase_this_step:
+                self._phase_this_step = True
+                self.water_fraction.append((now, float(m.group(1))))
+            return
 
         m = _SOLVE.search(line)
         if m:

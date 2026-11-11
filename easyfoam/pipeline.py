@@ -7,8 +7,11 @@ here depends on the GUI, so the command line and the tests use the same code.
 
 from __future__ import annotations
 
+import os
+import re
 import subprocess
 import threading
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -142,12 +145,53 @@ def post_steps_for(case_dir: Path, project: Project, function: str) -> list[Step
     return casegen.post_steps(project, function)
 
 
-def prepare_run(case_dir: Path, project: Project) -> list[Step]:
-    """Remove old results, write the solver set-up for the current mesh, return the steps."""
+_STOP_AT = re.compile(r"^(stopAt\s+)\w+;", re.MULTILINE)
+
+
+def request_stop(case_dir: Path) -> bool:
+    """Ask a running solver to save its current state and finish (it re-reads controlDict)."""
+    path = Path(case_dir) / "system" / "controlDict"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    new_text, count = _STOP_AT.subn(r"\1writeNow;", text)
+    if not count:
+        return False
+    changed_before = path.stat().st_mtime
+    path.write_bytes(new_text.encode("utf-8"))
+    # OpenFOAM only re-reads a file whose timestamp moved by more than its
+    # fileModificationSkew (5 s by default), so make sure it did.
+    stamp = max(time.time(), changed_before + 10.0)
+    os.utime(path, (stamp, stamp))
+    return True
+
+
+def computed_times(case_dir: Path) -> list[float]:
+    """Saved result times of a case (not counting the start, time 0)."""
+    case_dir = Path(case_dir)
+    if not case_dir.is_dir():
+        return []
+    return sorted(float(d.name) for d in case_dir.iterdir() if casegen._is_time_dir(d) and float(d.name) > 0)
+
+
+def prepare_run(case_dir: Path, project: Project, resume: bool = False) -> list[Step]:
+    """Write the solver set-up for the current mesh and return the steps.
+
+    A fresh run removes old results first; ``resume`` keeps them and continues
+    from the latest one (only the settings in ``system/`` and ``constant/`` are refreshed).
+    """
     case_dir = Path(case_dir)
     patches = read_boundary(case_dir)
     if not patches:
         raise RuntimeError("There is no mesh yet - generate the mesh before running the solver.")
+    if resume:
+        if not computed_times(case_dir):
+            raise RuntimeError("There is nothing to continue from - run the simulation first.")
+        files = {k: v for k, v in casegen.setup_files(project, patches).items() if not k.startswith("0/")}
+        casegen.write_files(case_dir, files)
+        decomposed = any(d.is_dir() and d.name.startswith("processor") for d in case_dir.iterdir())
+        return casegen.run_steps(project, resume=True, decomposed=decomposed)
     casegen.clean_results(case_dir)
     casegen.write_files(case_dir, casegen.setup_files(project, patches))
     return casegen.run_steps(project)

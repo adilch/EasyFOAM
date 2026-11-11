@@ -11,6 +11,7 @@ from easyfoam.casegen import setup as _setup
 from easyfoam.foam.boundaryfile import Patch
 from easyfoam.foam.dictfmt import foam_file
 from easyfoam.model import Project
+from easyfoam.solvers import solver_spec
 
 mesh_steps = _mesh.mesh_steps
 run_steps = _setup.run_steps
@@ -59,6 +60,11 @@ def setup_files(project: Project, patches: Sequence[Patch]) -> dict[str, str]:
     files["constant/turbulenceProperties"] = foam_file(
         "dictionary", "turbulenceProperties", _setup.turbulence_properties(project), location="constant"
     )
+    if solver_spec(project.physics.solver).multiphase:
+        files["constant/g"] = foam_file(
+            "uniformDimensionedVectorField", "g", _setup.gravity_dict(project), location="constant"
+        )
+        files["system/setFieldsDict"] = foam_file("dictionary", "setFieldsDict", _setup.set_fields_dict(project))
     for name, (cls, data) in _setup.field_dicts(project, patches).items():
         files[f"0/{name}"] = foam_file(cls, name, data, location="0")
     return files

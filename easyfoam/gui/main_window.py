@@ -5,16 +5,19 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QFont, QKeySequence
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
-    QInputDialog,
+    QHBoxLayout,
     QLabel,
     QListWidget,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
     QScrollArea,
     QSplitter,
     QStackedWidget,
@@ -26,9 +29,13 @@ from PySide6.QtWidgets import (
 from easyfoam import __version__
 from easyfoam.casegen.mesh import predicted_patches
 from easyfoam.casegen.setup import parse_yplus, reference_speed
+from easyfoam.checks import project_issues, step_states
 from easyfoam.examples import EXAMPLES
 from easyfoam.external import open_in_paraview
 from easyfoam.foam.boundaryfile import Patch, read_boundary
+from easyfoam.geometry import safe_name
+from easyfoam.gui import state
+from easyfoam.gui.icons import icon
 from easyfoam.gui.jobs import DetectThread, JobThread
 from easyfoam.gui.panels import (
     BoundaryPanel,
@@ -38,8 +45,18 @@ from easyfoam.gui.panels import (
     ResultsPanel,
     RunPanel,
 )
+from easyfoam.gui.sidebar import DETAIL_ROLE, ICON_ROLE, ROW_HEIGHT, STATE_ROLE, STEP_ICONS, StepDelegate
+from easyfoam.gui.welcome import EXAMPLES as EXAMPLE_CARDS
+from easyfoam.gui.welcome import NewProjectDialog, WelcomePage
 from easyfoam.model import PROJECT_FILE, Project
-from easyfoam.pipeline import JobResult, post_steps_for, prepare_mesh, prepare_run
+from easyfoam.pipeline import (
+    JobResult,
+    computed_times,
+    post_steps_for,
+    prepare_mesh,
+    prepare_run,
+    request_stop,
+)
 from easyfoam.runtime import Runtime
 from easyfoam.solvers import solver_spec
 
@@ -48,6 +65,8 @@ EXAMPLE_LABELS = {
     "empty": "Empty project",
     "sphere": "Example: air flow past a sphere",
     "pipe": "Example: laminar flow in a pipe",
+    "weir": "Example: flow over a weir (free surface)",
+    "dambreak": "Example: dam break (free surface)",
     "cavity": "Example: lid-driven cavity",
 }
 RESIDUAL_COLOURS = ["#4c78a8", "#f58518", "#54a24b", "#e45756", "#b279a2", "#72b7b2", "#9d755d", "#eeca3b"]
@@ -66,11 +85,14 @@ class MainWindow(QMainWindow):
         self._results = None
         self._mesh_cells: int | None = None
         self._curves: dict = {}
+        self._probe_curves: dict = {}
+        self._stop_requested = False
         self._force_curves: dict = {}
         self._pending_field = ""
         self._ticks = 0
 
-        self.resize(1400, 860)
+        self.resize(1520, 900)
+        self.setWindowIcon(icon("easyfoam"))
         self._build_panels()
         self._build_centre(enable_3d)
         self._build_actions()
@@ -86,6 +108,11 @@ class MainWindow(QMainWindow):
 
         self.runtime_label = QLabel("OpenFOAM: searching…" if detect else "OpenFOAM: not selected")
         self.statusBar().addPermanentWidget(self.runtime_label)
+        self.progress = QProgressBar()
+        self.progress.setFixedWidth(220)
+        self.progress.setRange(0, 100)
+        self.progress.hide()
+        self.statusBar().addPermanentWidget(self.progress)
         self._detect_thread: DetectThread | None = None
         if detect:
             self.detect_runtimes()
@@ -103,13 +130,18 @@ class MainWindow(QMainWindow):
                        self.boundary_panel, self.run_panel, self.results_panel]  # fmt: skip
 
         self.steps = QListWidget()
+        self.steps.setObjectName("steps")
         self.steps.addItems(STEPS)
-        font = QFont(self.steps.font())
-        font.setPointSize(font.pointSize() + 1)
-        self.steps.setFont(font)
-        self.steps.setFixedHeight(self.steps.sizeHintForRow(0) * len(STEPS) + 8)
+        self.steps.setItemDelegate(StepDelegate(self.steps))
+        self.steps.setMouseTracking(True)
+        for row, name in enumerate(STEPS):
+            self.steps.item(row).setData(ICON_ROLE, STEP_ICONS[name])
+            self.steps.item(row).setData(STATE_ROLE, "todo")
+        self.steps.setFixedWidth(216)
+        self.steps.setMinimumHeight(ROW_HEIGHT * len(STEPS) + 6)
         self.stack = QStackedWidget()
         for panel in self.panels:
+            panel.fit_forms()
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
             scroll.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -126,6 +158,9 @@ class MainWindow(QMainWindow):
         self.mesh_panel.generate_requested.connect(self.generate_mesh)
         self.run_panel.run_requested.connect(self.run_solver)
         self.run_panel.stop_requested.connect(self.stop_job)
+        self.run_panel.continue_requested.connect(self.continue_run)
+        self.geometry_panel.selection_changed.connect(self._highlight)
+        self.boundary_panel.selection_changed.connect(self._highlight)
         self.results_panel.view_changed.connect(self.refresh_view)
         self.results_panel.refresh_requested.connect(self.reload_results)
         self.results_panel.paraview_requested.connect(self.open_paraview)
@@ -133,11 +168,27 @@ class MainWindow(QMainWindow):
 
     def _build_centre(self, enable_3d: bool) -> None:
         left = QWidget()
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(6, 6, 0, 6)
-        left_layout.addWidget(self.steps)
+        columns = QHBoxLayout(left)
+        columns.setContentsMargins(8, 8, 0, 6)
+        columns.setSpacing(8)
+        columns.addWidget(self.steps)  # the workflow, full height, in its own column
+        panel_column = QWidget()
+        left_layout = QVBoxLayout(panel_column)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        columns.addWidget(panel_column, 1)
         left_layout.addWidget(self.stack, 1)
-        left.setMinimumWidth(430)
+        self.back_button = QPushButton(icon("arrow-left"), " Back")
+        self.next_button = QPushButton("Next")
+        self.next_button.setIcon(icon("arrow-right"))
+        self.next_button.setLayoutDirection(Qt.LayoutDirection.RightToLeft)  # icon after the text
+        self.back_button.clicked.connect(lambda: self._go(-1))
+        self.next_button.clicked.connect(lambda: self._go(+1))
+        nav = QHBoxLayout()
+        nav.addWidget(self.back_button)
+        nav.addStretch(1)
+        nav.addWidget(self.next_button)
+        left_layout.addLayout(nav)
+        left.setMinimumWidth(690)
 
         self.viewer = None
         if enable_3d:
@@ -154,6 +205,7 @@ class MainWindow(QMainWindow):
         self.log.setFont(QFont("Consolas", 9))
         self.log.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.plot = None
+        self.probe_plot = None
         self.force_plot = None
         self.force_label = QLabel("Switch on the force monitor in the Run step to see drag and lift here.")
         self.bottom = QTabWidget()
@@ -179,6 +231,12 @@ class MainWindow(QMainWindow):
             holder_layout.addWidget(self.force_label)
             holder_layout.addWidget(self.force_plot, 1)
             self.bottom.addTab(holder, "Forces")
+            self.probe_plot = pg.PlotWidget()
+            self.probe_plot.showGrid(x=True, y=True, alpha=0.25)
+            self.probe_plot.setLabel("left", "Pressure p/ρ at the probes [m²/s²]")
+            self.probe_plot.setLabel("bottom", "Iteration / time")
+            self.probe_plot.addLegend(offset=(-10, 10))
+            self.bottom.addTab(self.probe_plot, "Probes")
         except ImportError:  # the window still works without live plots
             pass
         self.bottom.addTab(self.log, "Log")
@@ -195,64 +253,118 @@ class MainWindow(QMainWindow):
         centre.addWidget(right)
         centre.setStretchFactor(0, 0)
         centre.setStretchFactor(1, 1)
-        centre.setSizes([480, 920])
-        self.setCentralWidget(centre)
+        centre.setSizes([710, 810])
+        self.workspace = centre
+        self.welcome = WelcomePage()
+        self.welcome.new_requested.connect(self._new_project_dialog)
+        self.welcome.open_requested.connect(self._open_project_dialog)
+        self.welcome.recent_requested.connect(self._open_recent)
+        self.pages = QStackedWidget()
+        self.pages.addWidget(self.welcome)
+        self.pages.addWidget(self.workspace)
+        self.setCentralWidget(self.pages)
 
     def _build_actions(self) -> None:
-        def action(text, slot, shortcut=None) -> QAction:
+        def action(text, slot, icon_name=None, shortcut=None, tip=None) -> QAction:
             act = QAction(text, self)
             act.triggered.connect(slot)
+            if icon_name:
+                act.setIcon(icon(icon_name))
             if shortcut:
                 act.setShortcut(shortcut)
+            if tip:
+                act.setToolTip(tip)
+                act.setStatusTip(tip)
             return act
 
-        self.new_action = action("New project…", lambda: self._new_project_dialog(), QKeySequence.StandardKey.New)
-        self.open_action = action("Open project…", self._open_project_dialog, QKeySequence.StandardKey.Open)
-        self.save_action = action("Save", self.save_project, QKeySequence.StandardKey.Save)
-        self.mesh_action = action("Generate mesh", self.generate_mesh, "F5")
-        self.run_action = action("Run", self.run_solver, "F6")
-        self.stop_action = action("Stop", self.stop_job, "Shift+F6")
-        self.paraview_action = action("Open in ParaView", self.open_paraview)
-        self.folder_action = action("Show case folder", self.show_case_folder)
+        self.new_action = action("New", lambda: self._new_project_dialog(), "file-plus",
+                                 QKeySequence.StandardKey.New, "Create a new project")  # fmt: skip
+        self.open_action = action("Open", self._open_project_dialog, "folder-open",
+                                  QKeySequence.StandardKey.Open, "Open an existing project folder")  # fmt: skip
+        self.save_action = action("Save", self.save_project, "save", QKeySequence.StandardKey.Save,
+                                  "Save the project (it is also saved automatically)")  # fmt: skip
+        self.mesh_action = action("Mesh", self.generate_mesh, "mesh", "F5", "Generate the mesh (F5)")
+        self.run_action = action("Run", lambda: self.run_solver(), "play", "F6",
+                                 "Run the simulation from the start (F6)")  # fmt: skip
+        self.continue_action = action("Continue", self.continue_run, "step-forward", "F7",
+                                      "Continue from the latest saved result (F7)")  # fmt: skip
+        self.stop_action = action("Stop", self.stop_job, "square", "Shift+F6",
+                                  "Stop: once to save and finish, twice to end at once")  # fmt: skip
+        self.paraview_action = action("ParaView", self.open_paraview, "external-link", None,
+                                      "Open the case in ParaView")  # fmt: skip
+        self.folder_action = action("Show case folder", self.show_case_folder, "folder")
+        self.close_action = action("Close project", self.close_project, "log-out")
 
         file_menu = self.menuBar().addMenu("&File")
         file_menu.addAction(self.new_action)
-        examples = file_menu.addMenu("New from example")
-        for key in ("sphere", "pipe", "cavity"):
-            examples.addAction(EXAMPLE_LABELS[key], lambda k=key: self._new_project_dialog(k))
+        examples = file_menu.addMenu(icon("book-open"), "New from example")
+        for key in ("sphere", "pipe", "cavity", "weir", "dambreak"):
+            examples.addAction(icon(EXAMPLE_CARDS[key][0]), EXAMPLE_LABELS[key],
+                               lambda k=key: self._new_project_dialog(k))  # fmt: skip
         file_menu.addAction(self.open_action)
+        self.recent_menu = file_menu.addMenu(icon("history"), "Open recent")
         file_menu.addAction(self.save_action)
         file_menu.addSeparator()
         file_menu.addAction(self.folder_action)
+        file_menu.addAction(self.close_action)
         file_menu.addSeparator()
-        file_menu.addAction(action("Quit", self.close, QKeySequence.StandardKey.Quit))
+        file_menu.addAction(action("Quit", self.close, None, QKeySequence.StandardKey.Quit))
 
         sim_menu = self.menuBar().addMenu("&Simulation")
-        for act in (self.mesh_action, self.run_action, self.stop_action, self.paraview_action):
+        for act in (self.mesh_action, self.run_action, self.continue_action, self.stop_action):
             sim_menu.addAction(act)
+        sim_menu.addSeparator()
+        sim_menu.addAction(self.paraview_action)
+
+        view_menu = self.menuBar().addMenu("&View")
+        self.view_actions: dict[str, QAction] = {}
+        for key, text, shortcut in (
+            ("fit", "Fit everything", "Ctrl+0"), ("iso", "Three-quarter view", "Ctrl+1"),
+            ("+x", "Look along +X", "Ctrl+2"), ("-x", "Look along −X", "Ctrl+3"),
+            ("+y", "Look along +Y", "Ctrl+4"), ("-y", "Look along −Y", "Ctrl+5"),
+            ("+z", "Look along +Z", "Ctrl+6"), ("-z", "Look along −Z", "Ctrl+7"),
+        ):  # fmt: skip
+            act = action(text, lambda k=key: self._view(k), None, shortcut)
+            view_menu.addAction(act)
+            self.view_actions[key] = act
+        view_menu.addSeparator()
+        for name, icon_name in (("Residuals", "activity"), ("Forces", "gauge"),
+                                ("Probes", "crosshair"), ("Log", "terminal")):  # fmt: skip
+            view_menu.addAction(action(f"Show {name.lower()}", lambda n=name: self._show_tab(n), icon_name))
 
         self.runtime_menu = self.menuBar().addMenu("&OpenFOAM")
         self._fill_runtime_menu()
 
         help_menu = self.menuBar().addMenu("&Help")
-        help_menu.addAction(action("About EasyFOAM", self._about))
+        help_menu.addAction(action("Getting started", self._getting_started, "circle-help",
+                                   QKeySequence.StandardKey.HelpContents))  # fmt: skip
+        help_menu.addAction(action("About EasyFOAM", self._about, "info"))
 
         bar = self.addToolBar("Main")
         bar.setMovable(False)
-        for act in (self.new_action, self.open_action, None, self.mesh_action, self.run_action,
-                    self.stop_action, None, self.paraview_action):  # fmt: skip
+        bar.setIconSize(QSize(22, 22))
+        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        for act in (self.new_action, self.open_action, self.save_action, None, self.mesh_action,
+                    self.run_action, self.continue_action, self.stop_action, None, self.paraview_action):  # fmt: skip
             bar.addSeparator() if act is None else bar.addAction(act)
+        self._fill_recent_menu()
 
     # ---------------------------------------------------------------- project
 
     def _set_project_open(self, is_open: bool) -> None:
-        self.stack.setEnabled(is_open)
-        self.steps.setEnabled(is_open)
-        for act in (self.save_action, self.mesh_action, self.run_action, self.paraview_action, self.folder_action):
+        self.pages.setCurrentWidget(self.workspace if is_open else self.welcome)
+        for act in (self.save_action, self.mesh_action, self.run_action, self.paraview_action,
+                    self.folder_action, self.close_action):  # fmt: skip
             act.setEnabled(is_open)
         self.stop_action.setEnabled(False)
-        if not is_open and self.viewer:
-            self.viewer.show_message("Create or open a project to begin  (File menu)")
+        self.continue_action.setEnabled(False)
+        if not is_open:
+            self.welcome.set_recent(state.load_recent())
+
+    def notify(self, title: str, text: str, level: str = "info") -> None:
+        """Tell the user something in a dialog (tests replace this to stay non-blocking)."""
+        box = {"error": QMessageBox.critical, "warning": QMessageBox.warning}.get(level, QMessageBox.information)
+        box(self, title, text)
 
     def _update_title(self) -> None:
         name = f"{self.project.name} — " if self.project else ""
@@ -263,6 +375,44 @@ class MainWindow(QMainWindow):
         EXAMPLES[example](case_dir.name).save(case_dir)
         self.open_project(case_dir)
 
+    def create_project(self, name: str, parent: Path, example: str = "empty") -> None:
+        """Create ``parent/name`` as a new project folder and open it."""
+        name = name.strip()
+        if not name:
+            raise ValueError("the project needs a name")
+        case_dir = Path(parent) / name
+        if case_dir.exists() and any(case_dir.iterdir()):
+            raise ValueError(f"{case_dir} already exists and is not empty")
+        EXAMPLES[example](safe_name(name)).save(case_dir)
+        state.remember_projects_folder(Path(parent))
+        self.open_project(case_dir)
+
+    def close_project(self) -> None:
+        if self.thread is not None:
+            self.notify("Close project", "A task is still running. Stop it first.")
+            return
+        self.save_project()
+        self.project, self.case_dir, self._results = None, None, None
+        self._set_project_open(False)
+        self._update_title()
+
+    def _open_recent(self, folder: str) -> None:
+        if (Path(folder) / PROJECT_FILE).is_file():
+            self.open_project(Path(folder))
+        else:
+            self.notify("Open project", f"{folder} is no longer an EasyFOAM project.")
+            self._fill_recent_menu()
+
+    def _fill_recent_menu(self) -> None:
+        self.recent_menu.clear()
+        recent = state.load_recent()
+        for folder in recent:
+            path = Path(folder)
+            self.recent_menu.addAction(icon("folder"), f"{path.name}    ({path.parent})",
+                                       lambda f=folder: self._open_recent(f))  # fmt: skip
+        if not recent:
+            self.recent_menu.addAction("No recent projects").setEnabled(False)
+
     def open_project(self, case_dir: Path) -> None:
         case_dir = Path(case_dir)
         self.project = Project.load(case_dir)
@@ -270,7 +420,9 @@ class MainWindow(QMainWindow):
         if self.project.runtime:
             self.runtime = Runtime.from_json(self.project.runtime)
         self._results = None
-        self._mesh_cells = None
+        self._mesh_cells = self._logged_mesh_cells()
+        state.add_recent(case_dir)
+        self._fill_recent_menu()
         self._set_project_open(True)
         self._update_title()
         self._show_runtime()
@@ -280,15 +432,18 @@ class MainWindow(QMainWindow):
         self._load_residual_history()
         self._update_forces()
         self.reload_results(show=False)
+        if solver_spec(self.project.physics.solver).multiphase and self.results_panel.field.count():
+            self.results_panel.select_field("U", "water")  # free-surface cases open on the water surface
         self.steps.setCurrentRow(0)
         self._step_selected(0)
+        self.refresh_status()
         self.statusBar().showMessage(f"Opened {case_dir}", 5000)
 
     def _load_panels(self) -> None:
         self.geometry_panel.load(self.project, self.case_dir)
         self.mesh_panel.load(self.project, self.case_dir)
         self.physics_panel.load(self.project)
-        self.run_panel.load(self.project)
+        self.run_panel.load(self.project, self.case_dir)
         self.results_panel.project = self.project
         self._load_boundaries()
 
@@ -312,31 +467,47 @@ class MainWindow(QMainWindow):
             if self.current_step() in ("Geometry", "Mesh"):
                 self._view_timer.start()
         if physics:
-            self.run_panel.load(self.project)
+            self.run_panel.load(self.project, self.case_dir)
+        self.refresh_status()
+
+    def _logged_mesh_cells(self) -> int | None:
+        """Cell count of the current mesh, taken from the checkMesh log."""
+        log = self.case_dir / "log.checkMesh"
+        try:
+            found = [m.group(1) for line in log.read_text(errors="replace").splitlines()
+                     if (m := _CELLS.match(line))]  # fmt: skip
+        except OSError:
+            return None
+        return int(found[-1]) if found and self.mesh_patches() else None
+
+    def refresh_status(self) -> None:
+        """Update the step badges, the pre-run checklist and what can be continued."""
+        if self.project is None or self.case_dir is None:
+            return
+        real = self.mesh_patches()
+        patches = real or predicted_patches(self.project)
+        times = computed_times(self.case_dir)
+        states = step_states(self.project, patches, bool(real), self._mesh_cells, [0.0, *times] if times else [])
+        for row, name in enumerate(STEPS):
+            item = self.steps.item(row)
+            item.setData(STATE_ROLE, states[name].state)
+            item.setData(DETAIL_ROLE, states[name].detail)
+            item.setToolTip(states[name].detail)
+        self.run_panel.show_issues(project_issues(self.project, patches, bool(real)))
+        can_continue = bool(times) and bool(real) and self.thread is None
+        self.continue_action.setEnabled(can_continue)
+        self.run_panel.continue_button.setEnabled(can_continue)
+        self.steps.viewport().update()
 
     def _new_project_dialog(self, example: str | None = None) -> None:
-        if example is None:
-            labels = [EXAMPLE_LABELS[k] for k in ("empty", "sphere", "pipe", "cavity")]
-            choice, ok = QInputDialog.getItem(self, "New project", "Start from", labels, 0, False)
-            if not ok:
-                return
-            example = next(k for k, v in EXAMPLE_LABELS.items() if v == choice)
-        folder = QFileDialog.getExistingDirectory(self, "Choose an empty folder for the new project")
-        if not folder:
+        dialog = NewProjectDialog(state.projects_folder(), example or "empty", self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        case_dir = Path(folder)
-        if (case_dir / PROJECT_FILE).exists():
-            self.open_project(case_dir)
-            return
-        if any(case_dir.iterdir()):
-            answer = QMessageBox.question(
-                self, "New project",
-                f"{case_dir} is not empty. Create the project there anyway?\n"
-                "Existing OpenFOAM files in it may be overwritten when you mesh or run.",
-            )  # fmt: skip
-            if answer != QMessageBox.StandardButton.Yes:
-                return
-        self.new_project(case_dir, example)
+        name, location, chosen = dialog.values()
+        try:
+            self.create_project(name, location, chosen)
+        except (ValueError, OSError) as exc:
+            self.notify("New project", str(exc), "error")
 
     def _open_project_dialog(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Open project folder")
@@ -410,11 +581,63 @@ class MainWindow(QMainWindow):
         if row < 0:
             return
         self.stack.setCurrentIndex(row)
+        self._update_nav()
+        if self.viewer is not None:
+            self.viewer._highlighted = self._selected_name()  # drawn by the refresh below
         if STEPS[row] == "Boundaries" and self.project is not None:
             self._load_boundaries()
         if STEPS[row] == "Mesh" and self.project is not None:
             self.mesh_panel.load(self.project, self.case_dir)
         self.refresh_view()
+
+    def _go(self, delta: int) -> None:
+        row = self.steps.currentRow() + delta
+        if 0 <= row < len(STEPS):
+            self.steps.setCurrentRow(row)
+
+    def _update_nav(self) -> None:
+        row = self.steps.currentRow()
+        self.back_button.setEnabled(row > 0)
+        last = row >= len(STEPS) - 1
+        self.next_button.setEnabled(not last)
+        self.next_button.setText("Next" if last else f"Next: {STEPS[row + 1]}")
+
+    def _highlight(self, name: str) -> None:
+        """Mark the shape or boundary selected in the list, on the steps where that helps."""
+        if self.viewer is not None:
+            self.viewer.highlight(name if self.current_step() in ("Geometry", "Boundaries") else "")
+
+    def _selected_name(self) -> str:
+        step = self.current_step()
+        chosen = None
+        if step == "Geometry":
+            chosen = self.geometry_panel.selected()
+        elif step == "Boundaries":
+            chosen = self.boundary_panel.selected()
+        return chosen.name if chosen is not None else ""
+
+    def _view(self, key: str) -> None:
+        if self.viewer is not None:
+            self.viewer.fit() if key == "fit" else self.viewer.set_view(key)
+
+    def _show_tab(self, name: str) -> None:
+        for index in range(self.bottom.count()):
+            if self.bottom.tabText(index) == name:
+                self.bottom.setCurrentIndex(index)
+
+    def show_progress(self, done: float | None, total: float | None) -> None:
+        """Show how far a run is (``None`` hides the bar)."""
+        if done is None or not total:
+            self.progress.hide()
+            return
+        self.progress.setValue(max(0, min(100, int(100 * done / total))))
+        self.progress.show()
+
+    def _point_dragged(self, point: list[float]) -> None:
+        """The user dragged the point-inside-the-fluid ball in the 3D view."""
+        self.project.mesh.location_in_mesh = [round(c, 6) for c in point]
+        self.mesh_panel.load(self.project, self.case_dir)
+        self._save_timer.start()
 
     def _can_start(self) -> bool:
         if self.project is None or self.case_dir is None:
@@ -433,6 +656,7 @@ class MainWindow(QMainWindow):
 
     def _start(self, name: str, steps, parse_step: str | None = None) -> None:
         self.save_project()
+        self._stop_requested = False
         self.log.appendPlainText(f"\n=== {name} — {self.runtime.label} ===")
         self.thread = JobThread(self.case_dir, self.runtime, name, steps, parse_step, parent=self)
         self.thread.step_started.connect(lambda step: self.statusBar().showMessage(f"{name}: {step}…"))
@@ -449,6 +673,11 @@ class MainWindow(QMainWindow):
         self.run_panel.set_running(running, status)
         if status:
             self.statusBar().showMessage(status)
+        self.continue_action.setEnabled(False)
+        self.run_panel.continue_button.setEnabled(False)
+        if not running:
+            self.show_progress(None, None)
+            self.refresh_status()
 
     def generate_mesh(self) -> None:
         if not self._can_start():
@@ -467,19 +696,31 @@ class MainWindow(QMainWindow):
         self.bottom.setCurrentWidget(self.log)
         self._start("mesh", steps)
 
-    def run_solver(self) -> None:
+    def run_solver(self, resume: bool = False) -> None:
+        """Run from the start, or carry on from the latest saved result."""
         if not self._can_start():
+            return
+        patches = self.mesh_patches()
+        blocking = [i.text for i in project_issues(self.project, patches, bool(patches))
+                    if i.level in ("error", "todo")]  # fmt: skip
+        if blocking:
+            self.notify("Not ready to run",
+                        "Please sort this out first:\n\n" + "\n".join(f"•  {text}" for text in blocking), "error")  # fmt: skip
             return
         self._results = None
         try:
-            steps = prepare_run(self.case_dir, self.project)
+            steps = prepare_run(self.case_dir, self.project, resume=resume)
         except (RuntimeError, OSError, ValueError) as exc:
-            QMessageBox.warning(self, "Run", str(exc))
+            self.notify("Run", str(exc), "warning")
             return
-        self._reset_plot()
+        if not resume:
+            self._reset_plot()
         if self.plot is not None:
             self.bottom.setCurrentWidget(self.plot)
         self._start("run", steps, parse_step=self.project.physics.solver)
+
+    def continue_run(self) -> None:
+        self.run_solver(resume=True)
 
     def compute_quantity(self, function: str) -> None:
         """Compute a derived quantity (y+, vorticity, …) for the latest result."""
@@ -508,9 +749,22 @@ class MainWindow(QMainWindow):
                 self.results_panel.info.setText("y+ on walls\n" + "\n".join(lines))
 
     def stop_job(self) -> None:
-        if self.thread is not None:
-            self.statusBar().showMessage("Stopping…")
-            self.thread.stop()
+        """Stop the running task.
+
+        A solver run is first asked to save its state and finish; a second
+        Stop (or any other task) is ended at once.
+        """
+        thread = self.thread
+        if thread is None:
+            return
+        graceful = thread.name == "run" and not self._stop_requested and self.case_dir is not None
+        if graceful and request_stop(self.case_dir):
+            self._stop_requested = True
+            self.statusBar().showMessage("Saving the current state… (Stop again to end at once)")
+            self.run_panel.status.setText("Saving the current state… Press Stop again to end at once.")
+            return
+        self.statusBar().showMessage("Stopping…")
+        thread.stop()
 
     def _drain_job_output(self) -> None:
         thread = self.thread
@@ -534,9 +788,16 @@ class MainWindow(QMainWindow):
             if parser.time is not None:
                 steady = solver_spec(self.project.physics.solver).steady
                 unit = "iteration" if steady else "time"
-                self.run_panel.status.setText(
-                    f"Running — {unit} {parser.time:g} of {self.project.run.end_time:g}"
-                )
+                if not self._stop_requested:
+                    water = (
+                        f" — water fills {100 * parser.water_fraction[-1][1]:.2f} % of the domain"
+                        if parser.water_fraction
+                        else ""
+                    )
+                    self.run_panel.status.setText(
+                        f"Running — {unit} {parser.time:g} of {self.project.run.end_time:g}{water}"
+                    )
+                self.show_progress(parser.time, self.project.run.end_time)
 
     def _job_finished(self, result) -> None:
         thread, self.thread = self.thread, None
@@ -565,6 +826,8 @@ class MainWindow(QMainWindow):
             self._set_running(False, f"Mesh ready{cells}.")
         elif name == "compute":
             self._set_running(False, f"Computed {self._pending_field}.")
+        elif self._stop_requested:
+            self._set_running(False, "Stopped; the current state was saved. Use Continue to carry on.")
         else:
             self._set_running(False, "Run finished.")
 
@@ -574,6 +837,8 @@ class MainWindow(QMainWindow):
         if result.ok and name == "compute":
             self._show_computed()
         if result.ok and name == "run":
+            if solver_spec(self.project.physics.solver).multiphase:
+                self.results_panel.select_field("U", "water")  # the water surface, coloured by speed
             self.steps.setCurrentRow(STEPS.index("Results"))
         self.refresh_view()
 
@@ -586,9 +851,13 @@ class MainWindow(QMainWindow):
             self.plot.clear()
         if self.force_plot is not None:
             self.force_plot.clear()
+        self._probe_curves = {}
+        if self.probe_plot is not None:
+            self.probe_plot.clear()
 
     def _update_forces(self) -> None:
         """Refresh the force-coefficient plot and the drag / lift read-out."""
+        self._update_probes()
         if self.force_plot is None or self.case_dir is None or self.project is None:
             return
         import pyqtgraph as pg
@@ -614,6 +883,25 @@ class MainWindow(QMainWindow):
             f"Cd = {cd:.4g}    Cl = {cl:.4g}    drag = {cd * pressure:.4g} N    "
             f"lift = {cl * pressure:.4g} N    (at {times[-1]:g})"
         )
+
+    def _update_probes(self) -> None:
+        """Refresh the pressure history at the probe points."""
+        if self.probe_plot is None or self.case_dir is None:
+            return
+        import pyqtgraph as pg
+
+        from easyfoam.foam.probes import read_probes
+
+        history = read_probes(self.case_dir)
+        pressure = history.get("p") or history.get("p_rgh")
+        if not pressure:
+            return
+        times, series = pressure
+        for index, values in enumerate(series):
+            if index not in self._probe_curves:
+                pen = pg.mkPen(RESIDUAL_COLOURS[index % len(RESIDUAL_COLOURS)], width=2)
+                self._probe_curves[index] = self.probe_plot.plot(name=f"probe {index + 1}", pen=pen)
+            self._probe_curves[index].setData(times, values)
 
     def _load_residual_history(self) -> None:
         """Plot the residuals of the last run from its log file, if there is one."""
@@ -677,7 +965,9 @@ class MainWindow(QMainWindow):
         try:
             has_mesh = bool(self.mesh_patches())
             if step == "Geometry" or not has_mesh:
-                self.viewer.show_geometry(self.project, self.case_dir)
+                self.viewer.show_geometry(
+                    self.project, self.case_dir, self._point_dragged if step == "Mesh" else None
+                )
                 return
             types = {p.name: p.type for p in self.mesh_patches()}
             results = self._case_results()
@@ -701,6 +991,20 @@ class MainWindow(QMainWindow):
             )  # fmt: skip
 
     # ------------------------------------------------------------------- misc
+
+    def _getting_started(self) -> None:
+        self.notify(
+            "Getting started",
+            "Work through the steps on the left, top to bottom:\n\n"
+            "1. Geometry: import an STL file or add simple shapes.\n"
+            "2. Mesh: size the base mesh, then press Generate mesh.\n"
+            "3. Physics: choose steady or transient flow, the turbulence model and the fluid.\n"
+            "4. Boundaries: say what each boundary is (inlet, outlet, wall).\n"
+            "5. Run: set the iterations and cores, then press Run.\n"
+            "6. Results: look at slices and surfaces, or open ParaView.\n\n"
+            "Each step shows a tick when it is complete and a warning when something needs attention. "
+            "Hover over any input to see what it means. To see it all working, try File > New from example.",
+        )
 
     def _about(self) -> None:
         QMessageBox.about(

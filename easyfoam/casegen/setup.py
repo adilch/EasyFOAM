@@ -6,6 +6,7 @@ import math
 import re
 from collections.abc import Sequence
 
+from easyfoam.casegen import freesurface
 from easyfoam.foam.boundaryfile import Patch
 from easyfoam.model import Boundary, Project
 from easyfoam.runtime import Step
@@ -84,12 +85,18 @@ def _entry(field: str, patch: Patch, bc: Boundary, project: Project, internal: d
     if field == "U":
         if bc.kind in ("velocityInlet", "movingWall"):
             return {"type": "fixedValue", "value": _vector(bc.velocity)}
-        if bc.kind == "pressureOutlet":
+        if bc.kind == "flowRateInlet":
+            return {"type": "flowRateInletVelocity", "volumetricFlowRate": bc.flow_rate, "value": "uniform (0 0 0)"}
+        if bc.kind == "atmosphere":
+            return {"type": "pressureInletOutletVelocity", "value": "uniform (0 0 0)"}
+        if bc.kind in ("pressureOutlet", "freeOutflow"):
             zero = "uniform (0 0 0)"
             return {"type": "inletOutlet", "inletValue": zero, "value": zero}
         return {"type": "noSlip"}
     if field == "p":
-        if bc.kind == "pressureOutlet":
+        if bc.kind == "atmosphere":
+            return {"type": "totalPressure", "p0": "uniform 0"}
+        if bc.kind in ("pressureOutlet", "freeOutflow"):
             return {"type": "fixedValue", "value": f"uniform {float(bc.pressure)!r}"}
         return {"type": "zeroGradient"}
 
@@ -104,6 +111,8 @@ def _entry(field: str, patch: Patch, bc: Boundary, project: Project, internal: d
         if field == "nuTilda":
             return {"type": "fixedValue", "value": "uniform 0"}
         return {"type": WALL_FUNCTIONS[field], "value": _scalar(internal[field])}
+    if bc.kind == "flowRateInlet":
+        return {"type": "fixedValue", "value": _scalar(internal[field])}
     if bc.kind == "velocityInlet":
         return {"type": "fixedValue", "value": _scalar(_turbulence(project, _speed(bc.velocity))[field])}
     value = _scalar(internal[field])
@@ -112,7 +121,8 @@ def _entry(field: str, patch: Patch, bc: Boundary, project: Project, internal: d
 
 def field_dicts(project: Project, patches: Sequence[Patch]) -> dict[str, tuple[str, dict]]:
     """``{field name: (class, dictionary)}`` for the files of the ``0`` folder."""
-    solver_spec(project.physics.solver)
+    if solver_spec(project.physics.solver).multiphase:
+        return freesurface.field_dicts(project, patches)
     names = ["U", "p", *turbulence_fields(project.physics.turbulence)]
     boundaries = _boundaries(project, patches)
     internal = _turbulence(project, _reference_speed(project, boundaries))
@@ -168,11 +178,34 @@ def reference_speed(project: Project, patches: Sequence[Patch]) -> float:
 
 def _functions(project: Project, patches: Sequence[Patch]) -> dict:
     monitor = project.forces
-    on = force_patches(project, patches) if monitor.enabled else []
-    if not on:
-        return {}
-    return {
-        "forceCoeffs": {
+    multiphase = solver_spec(project.physics.solver).multiphase
+    # force coefficients are based on one density and speed: not meaningful with water and air
+    on = force_patches(project, patches) if monitor.enabled and not multiphase else []
+    functions: dict = {}
+    run = project.run
+    saves = run.end_time / run.write_interval if run.write_interval > 0 else 0.5
+    if abs(saves - round(saves)) > 1e-9:
+        # OpenFOAM only saves at regular save points; make sure the final state is kept too
+        pressure = ["p_rgh", freesurface.WATER] if multiphase else ["p"]
+        fields = ["U", *pressure, *turbulence_fields(project.physics.turbulence), "phi"]
+        functions["saveAtEnd"] = {
+            "type": "writeObjects",
+            "libs": ["utilityFunctionObjects"],
+            "objects": fields,
+            "writeOption": "anyWrite",
+            "writeControl": "onEnd",
+        }
+    if project.probes:
+        functions["probes"] = {
+            "type": "probes",
+            "libs": ["sampling"],
+            "writeControl": "timeStep",
+            "writeInterval": 1,
+            "fields": ["p_rgh", "U", freesurface.WATER] if multiphase else ["p", "U"],
+            "probeLocations": [list(point) for point in project.probes],
+        }
+    if on:
+        functions["forceCoeffs"] = {
             "type": "forceCoeffs",
             "libs": ["forces"],
             "writeControl": "timeStep",
@@ -189,7 +222,7 @@ def _functions(project: Project, patches: Sequence[Patch]) -> dict:
             "lRef": monitor.ref_length,
             "Aref": monitor.ref_area,
         }
-    }
+    return functions
 
 
 def control_dict(project: Project, patches: Sequence[Patch] | None = None) -> dict:
@@ -221,6 +254,15 @@ def control_dict(project: Project, patches: Sequence[Patch] | None = None) -> di
     }
     if not spec.steady and run.adjust_time_step:
         d |= {"adjustTimeStep": True, "maxCo": run.max_courant}
+    if spec.multiphase:
+        # the time step always follows the flow and the moving water surface
+        d |= {
+            "writeControl": "adjustable",
+            "adjustTimeStep": True,
+            "maxCo": run.max_courant,
+            "maxAlphaCo": run.max_courant,
+            "maxDeltaT": run.write_interval,
+        }
     functions = _functions(project, patches) if patches else {}
     if functions:
         d["functions"] = functions
@@ -228,6 +270,8 @@ def control_dict(project: Project, patches: Sequence[Patch] | None = None) -> di
 
 
 def fv_schemes(project: Project) -> dict:
+    if solver_spec(project.physics.solver).multiphase:
+        return freesurface.fv_schemes(project)
     steady = solver_spec(project.physics.solver).steady
     accurate = project.physics.numerics == "accurate"
     bounded = "bounded " if steady else ""
@@ -253,6 +297,8 @@ def fv_schemes(project: Project) -> dict:
 
 
 def fv_solution(project: Project) -> dict:
+    if solver_spec(project.physics.solver).multiphase:
+        return freesurface.fv_solution(project)
     steady = solver_spec(project.physics.solver).steady
     accurate = project.physics.numerics == "accurate"
     pressure = {"solver": "GAMG", "smoother": "GaussSeidel", "tolerance": 1e-06, "relTol": 0.05}
@@ -295,7 +341,17 @@ def fv_solution(project: Project) -> dict:
 
 
 def transport_properties(project: Project) -> dict:
+    if solver_spec(project.physics.solver).multiphase:
+        return freesurface.transport_properties(project)
     return {"transportModel": "Newtonian", "nu": project.physics.nu}
+
+
+def gravity_dict(project: Project) -> dict:
+    return freesurface.gravity_dict(project)
+
+
+def set_fields_dict(project: Project) -> dict:
+    return freesurface.set_fields_dict(project)
 
 
 def turbulence_properties(project: Project) -> dict:
@@ -310,15 +366,25 @@ def decompose_dict(project: Project) -> dict:
     return {"numberOfSubdomains": max(1, project.run.processors), "method": "scotch"}
 
 
-def run_steps(project: Project) -> list[Step]:
+def run_steps(project: Project, resume: bool = False, decomposed: bool = False) -> list[Step]:
+    """Steps of a run; ``resume`` continues from the latest saved result."""
     solver = project.physics.solver
     solver_spec(solver)
     n = project.run.processors
-    potential = project.physics.potential_init
+    multiphase = solver_spec(solver).multiphase
+    potential = project.physics.potential_init and not resume and not multiphase
+    place_water = [Step("setFields", "setFields")] if multiphase and not resume else []
+    if resume and n > 1:
+        first = [] if decomposed else [Step("decomposePar", "decomposePar -force")]
+        return [
+            *first,
+            Step(solver, f"mpirun -np {n} {solver} -parallel"),
+            Step("reconstructPar", "reconstructPar -newTimes"),
+        ]
     if n <= 1:
         first = [Step("potentialFoam", "potentialFoam")] if potential else []
-        return [*first, Step(solver, solver)]
-    steps = [Step("decomposePar", "decomposePar -force")]
+        return [*place_water, *first, Step(solver, solver)]
+    steps = [*place_water, Step("decomposePar", "decomposePar -force")]
     if potential:
         steps.append(Step("potentialFoam", f"mpirun -np {n} potentialFoam -parallel"))
     steps.append(Step(solver, f"mpirun -np {n} {solver} -parallel"))

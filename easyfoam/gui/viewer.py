@@ -11,15 +11,24 @@ os.environ.setdefault("QT_API", "pyside6")
 
 import numpy as np  # noqa: E402
 import pyvista as pv  # noqa: E402
-from PySide6.QtWidgets import QVBoxLayout, QWidget  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QToolButton, QVBoxLayout, QWidget  # noqa: E402
 from pyvistaqt import QtInteractor  # noqa: E402
 
 from easyfoam.casegen.mesh import auto_location_in_mesh, location_in_mesh, uses_snappy  # noqa: E402
+from easyfoam.gui.icons import icon  # noqa: E402
 from easyfoam.model import FACES, Project, Shape  # noqa: E402
 from easyfoam.results import CaseData  # noqa: E402
 
 PATCH_COLOURS = ["#4c78a8", "#f58518", "#54a24b", "#b279a2", "#e45756", "#72b7b2", "#9d755d", "#eeca3b"]
 SOLID = "#c8b99a"
+HIGHLIGHT = "#f59e0b"
+WATER_BLUE = "#3b82f6"
+VIEWS = {  # name -> (direction from the scene to the camera, up)
+    "+x": ((-1, 0, 0), (0, 0, 1)), "-x": ((1, 0, 0), (0, 0, 1)),
+    "+y": ((0, -1, 0), (0, 0, 1)), "-y": ((0, 1, 0), (0, 0, 1)),
+    "+z": ((0, 0, -1), (0, 1, 0)), "-z": ((0, 0, 1), (0, 1, 0)),
+}  # fmt: skip
 REGION = "#4c78a8"
 OPEN_TYPES = ("patch", "symmetry", "symmetryPlane", "empty")
 AXIS = {"x": 0, "y": 1, "z": 2}
@@ -69,9 +78,43 @@ class Viewer(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.plotter = QtInteractor(self)
+        bar = QWidget()
+        bar.setObjectName("viewbar")
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(6, 3, 6, 3)
+        row.setSpacing(2)
+
+        def button(text, tip, slot, icon_name=None, checkable=False) -> QToolButton:
+            b = QToolButton()
+            b.setText(text)
+            b.setToolTip(tip)
+            b.setCheckable(checkable)
+            if icon_name:
+                b.setIcon(icon(icon_name, size=16))
+                b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            b.clicked.connect(slot)
+            row.addWidget(b)
+            return b
+
+        button("Fit", "Zoom so that everything is visible", self.fit, "maximize")
+        button("3D", "Three-quarter view", lambda: self.set_view("iso"), "rotate-3d")
+        for key in ("+x", "-x", "+y", "-y", "+z", "-z"):
+            label = key.replace("-", "−").upper()
+            button(label, f"Look along {label}", lambda _checked=False, k=key: self.set_view(k))
+        self.parallel_button = button(
+            "Flat", "Parallel projection: no perspective, sizes compare directly", self.toggle_parallel,
+            "grid-2x2", checkable=True,
+        )  # fmt: skip
+        button("Picture", "Save the 3D view as an image file", self.save_picture, "camera")
+        row.addStretch(1)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.plotter)
+        layout.setSpacing(0)
+        layout.addWidget(bar)
+        layout.addWidget(self.plotter, 1)
+        self._parts: dict = {}  # name -> surface of what is on screen, for highlighting
+        self._highlighted = ""
         self.plotter.set_background("#f4f6f8", top="#cfd9e3")
         self.plotter.add_axes()
         self._scene: str | None = None  # what is shown; the camera is kept while it stays the same
@@ -81,14 +124,59 @@ class Viewer(QWidget):
         """Clear the view; returns True when the camera should be reset afterwards."""
         fresh = scene != self._scene
         self._scene = scene
+        self.plotter.clear_sphere_widgets()
         self.plotter.clear()
+        self._parts = {}
         return fresh
 
     def _end(self, fresh: bool) -> None:
         if fresh:
             self.plotter.reset_camera()
             self.plotter.view_isometric()
+        self._draw_highlight()
         self.plotter.render()
+
+    # -- camera
+    def fit(self) -> None:
+        self.plotter.reset_camera()
+        self.plotter.render()
+
+    def set_view(self, key: str) -> None:
+        """``iso`` or one of ``+x -x +y -y +z -z`` (the direction you look along)."""
+        if key == "iso":
+            self.plotter.view_isometric()
+        else:
+            vector, up = VIEWS[key]
+            self.plotter.view_vector(vector, viewup=up)
+        self.plotter.reset_camera()
+        self.plotter.render()
+
+    def toggle_parallel(self, on: bool | None = None) -> None:
+        on = self.parallel_button.isChecked() if on is None else on
+        if on:
+            self.plotter.enable_parallel_projection()
+        else:
+            self.plotter.disable_parallel_projection()
+        self.plotter.render()
+
+    def save_picture(self) -> None:
+        file, _ = QFileDialog.getSaveFileName(self, "Save picture", "view.png", "PNG image (*.png)")
+        if file:
+            self.plotter.screenshot(file)
+
+    # -- highlighting
+    def highlight(self, name: str) -> None:
+        """Mark one shape or boundary (by name) in the current scene; "" clears the mark."""
+        self._highlighted = name
+        self._draw_highlight()
+        self.plotter.render()
+
+    def _draw_highlight(self) -> None:
+        self.plotter.remove_actor("highlight", render=False)
+        surface = self._parts.get(self._highlighted)
+        if surface is not None and surface.n_cells:
+            self.plotter.add_mesh(surface, color=HIGHLIGHT, opacity=0.65, name="highlight",
+                                  reset_camera=False, pickable=False, render=False)  # fmt: skip
 
     def show_message(self, text: str) -> None:
         self._begin("message:" + text)
@@ -102,7 +190,7 @@ class Viewer(QWidget):
         return self.plotter.screenshot(return_img=True)
 
     # -- scenes
-    def show_geometry(self, project: Project, case_dir: Path) -> None:
+    def show_geometry(self, project: Project, case_dir: Path, on_point_moved=None) -> None:
         fresh = self._begin("geometry")
         base = project.mesh.base
         (x0, y0, z0), (x1, y1, z1) = base.min, base.max
@@ -121,18 +209,30 @@ class Viewer(QWidget):
             if surface is None:
                 missing.append(shape.name)
                 continue
+            self._parts[shape.name] = surface
             if shape.role == "refinement":
                 self.plotter.add_mesh(surface, color=REGION, opacity=0.18, reset_camera=False)
                 self.plotter.add_mesh(surface, style="wireframe", color=REGION, opacity=0.5, reset_camera=False)
             else:
-                self.plotter.add_mesh(surface, color=SOLID, smooth_shading=True, reset_camera=False)
+                # the shape that contains the fluid is see-through, so the point inside it shows
+                opacity = 0.3 if shape.name == project.mesh.fluid_inside else 1.0
+                self.plotter.add_mesh(surface, color=SOLID, smooth_shading=True, opacity=opacity,
+                                      reset_camera=False)  # fmt: skip
         if uses_snappy(project):
             try:
                 point = location_in_mesh(project, case_dir)
             except (ValueError, OSError):
                 point = auto_location_in_mesh(base)
             size = 0.012 * math.dist(base.min, base.max)
-            self.plotter.add_mesh(pv.Sphere(radius=size, center=point), color="#e45756", reset_camera=False)
+            if on_point_moved is not None and project.mesh.location_in_mesh is not None:
+                # the user places the point by hand: let them drag it
+                self.plotter.add_sphere_widget(
+                    lambda centre: on_point_moved([float(c) for c in centre]),
+                    center=point, radius=1.6 * size, color="#e45756",
+                    test_callback=False, interaction_event="end",
+                )  # fmt: skip
+            else:
+                self.plotter.add_mesh(pv.Sphere(radius=size, center=point), color="#e45756", reset_camera=False)
         if missing:
             self.plotter.add_text("Missing STL: " + ", ".join(missing), font_size=10, color="#b33")
         self._end(fresh)
@@ -141,6 +241,7 @@ class Viewer(QWidget):
         for index, (name, surface) in enumerate(data.patches.items()):
             if surface is None or surface.n_cells == 0:
                 continue
+            self._parts[name] = surface
             is_open = patch_types.get(name, "patch") in OPEN_TYPES
             wraps = not is_open and is_enclosure(surface.bounds, data.internal.bounds)
             colour = PATCH_COLOURS[index % len(PATCH_COLOURS)]
@@ -193,7 +294,19 @@ class Viewer(QWidget):
             return
         fresh = self._begin("results")
         internal = data.internal
-        if mode == "surface":
+        if mode == "water" and "alpha.water" in internal.array_names:
+            # the free surface: where the cells are half water, half air
+            self._add_patches(data, patch_types, "", edges=False)
+            surface = internal.cell_data_to_point_data().contour([0.5], scalars="alpha.water")
+            if surface.n_points:
+                if field != "alpha.water" and field in surface.array_names:
+                    self.plotter.add_mesh(surface, scalars=field, cmap="turbo", smooth_shading=True,
+                                          show_edges=edges, reset_camera=False,
+                                          scalar_bar_args={"title": field, "color": "#27313b"})  # fmt: skip
+                else:
+                    self.plotter.add_mesh(surface, color=WATER_BLUE, smooth_shading=True, show_edges=edges,
+                                          reset_camera=False)  # fmt: skip
+        elif mode == "surface":
             self._add_patches(data, patch_types, field, edges)
         else:
             self._add_patches(data, patch_types, "", edges=False)  # walls in plain colour for context

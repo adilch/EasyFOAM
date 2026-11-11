@@ -4,10 +4,11 @@ An open-source desktop front-end for [OpenFOAM](https://www.openfoam.com).
 Geometry, meshing, case set-up, running and results in one window, driving
 **your own, unmodified OpenFOAM** and leaving a normal case folder on disk.
 
-![Results view](docs/images/Results.png)
+![EasyFOAM workspace](docs/images/Forces.png)
 
-Status: **v0.2, alpha.** The whole loop works for incompressible flow around
-bodies and inside pipes and ducts; see
+Status: **v0.4, alpha.** The whole loop works for incompressible flow around
+bodies, inside pipes and ducts, and with a free water surface (weirs, spillways,
+dam breaks); see
 [what works](#what-works-today) and the [roadmap](docs/roadmap.md).
 
 ## Why another GUI
@@ -21,16 +22,28 @@ Good free tools already exist: [BARAM](https://github.com/nextfoam/baram)
 - every operation is also a command, so cases can be scripted;
 - no limits on cells or processor cores.
 
+## Made to be easy
+
+- A start page with examples and your recent projects; a new project only needs a name.
+- Six steps down the left, each with a one-line summary and a tick, a warning or a to-do mark.
+- A checklist before every run says in plain words what is still missing or wrong.
+- Back / Next buttons walk through the steps; every input explains itself in a tooltip.
+- Selecting a shape or a boundary lights it up in the 3D view; view buttons for fit, axis views and pictures.
+- Stop saves the current state first; Continue carries on from where a run ended.
+
+![Start page](docs/images/Welcome.png)
+
 ## What works today
 
 | | |
 |---|---|
 | Geometry | STL import (ASCII and binary), with each named solid of an STL usable as a wall or an opening; box, sphere, cylinder primitives; shapes as solid surfaces or refinement regions |
 | Mesh | Base mesh box with named faces; automatic sizing (wind tunnel, or snug box for internal flow); snappyHexMesh with surface refinement, refinement regions and by distance, feature edges and boundary layers; fluid outside or inside a shape; checkMesh report |
+| Free surface | Water and air with a free surface (interFoam): gravity, surface tension, water placed as boxes or filled to a level, time step that follows the water surface |
 | Physics | Incompressible flow, steady (simpleFoam) and transient (pimpleFoam); laminar, k-epsilon, realizable k-epsilon, k-omega SST, Spalart-Allmaras; potential-flow start; small fluid list |
-| Boundaries | Velocity inlet, pressure outlet, wall, moving wall, slip, symmetry / empty; sensible defaults from patch names and types |
-| Run | Serial or parallel (automatic decomposition and reconstruction); live residual plot; convergence target; drag and lift coefficients with a live plot and forces in newtons; log; stop |
-| Results | Built-in 3D view (mesh, slices, surface colouring); y+, wall shear stress, vorticity and Q computed on demand; one click to ParaView |
+| Boundaries | Velocity inlet, inlet by flow rate (follows the water level in free-surface flow), pressure outlet, free outflow, open atmosphere, wall, moving wall, slip, symmetry / empty; sensible defaults from patch names and types |
+| Run | Serial or parallel (automatic decomposition and reconstruction); live residual plot; convergence target; drag and lift coefficients with a live plot and forces in newtons; probes; frontal-area estimate; graceful stop and continue; the final state is always saved; log |
+| Results | Built-in 3D view (mesh, slices, surface colouring, the water surface coloured by speed); y+, wall shear stress, vorticity and Q computed on demand; one click to ParaView |
 
 Everything else a commercial front-end offers (heat transfer, free surface,
 rotating machinery, STEP import, …) is listed with its status in
@@ -77,7 +90,7 @@ Desktop application:
 ```
 
 Then *File > New from example* (air flow past a sphere, laminar flow in a pipe,
-or the lid-driven cavity), press **Generate mesh** (F5) and **Run** (F6). The steps on the left go in order: Geometry, Mesh,
+the lid-driven cavity, flow over a weir, or a dam break), press **Generate mesh** (F5) and **Run** (F6). The steps on the left go in order: Geometry, Mesh,
 Physics, Boundaries, Run, Results.
 
 Command line, same operations:
@@ -99,6 +112,18 @@ come out at twice the mean speed (Hagen-Poiseuille). On the example's coarse
 against the exact 3.2 m²/s² per metre.
 
 ![Pipe flow](docs/images/Pipe.png)
+
+### Flow over a weir
+
+The weir example sends 0.05 m³/s over a 0.5 m wide, 0.25 m thick, 0.51 m high weir. After 20 s the flow is
+steady (outflow within 0.5 % of inflow) and the water stands 0.169 m above the crest. The ideal
+broad-crested weir formula gives 0.151 m; a real square-edged weir has losses, which puts the simulated
+value (an implied discharge coefficient of about 0.85) in the expected range. The example mesh is coarse
+(20,000 cells, about five cells over the head), so treat this as a plausibility check, not a calibration.
+
+![Flow over a weir](docs/images/Weir.png)
+
+The dam-break example conserves its water to within 1 % while the surge crosses the tank.
 
 ## How a case is laid out
 
@@ -131,6 +156,9 @@ reverse engineered, decompiled or copied. See
 ## Licence and trademarks
 
 GPL-3.0-or-later, see [LICENSE](LICENSE).
+
+Most icons are from [Lucide](https://lucide.dev) (ISC licence, text in
+`easyfoam/gui/icons/LICENSE-lucide.txt`); the mesh, example and logo icons are EasyFOAM's own.
 
 This offering is not approved or endorsed by OpenCFD Limited, producer and
 distributor of the OpenFOAM software via www.openfoam.com, and owner of the

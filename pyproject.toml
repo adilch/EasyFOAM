@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "easyfoam"
-version = "0.2.0"
+version = "0.4.0"
 description = "An open-source desktop front-end for OpenFOAM: geometry, meshing, case setup, run and results in one window."
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -50,7 +50,7 @@ markers = [
 addopts = "-q"
 
 [tool.ruff]
-line-length = 116
+line-length = 130
 target-version = "py311"
 
 [tool.ruff.lint]
@@ -59,3 +59,4 @@ ignore = ["B905"]  # zip() over fixed-size xyz triples
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E501"]
+"easyfoam/gui/style.py" = ["E501"]
