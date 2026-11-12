@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
+from easyfoam import drawn
 from easyfoam.model import Project, Shape
 
 _VERTEX = re.compile(rb"vertex\s+(\S+)\s+(\S+)\s+(\S+)")
@@ -236,7 +237,66 @@ def interior_point(triangles: np.ndarray, lo=None, hi=None) -> list[float]:
     raise ValueError("no point inside the closed surface was found within the base mesh")
 
 
-def shape_bounds(shape: Shape, case_dir: Path) -> tuple[list[float], list[float]]:
+def is_surface(shape: Shape) -> bool:
+    """Does the shape reach the mesher as a surface file (imported, or written from a drawn shape)?"""
+    return shape.kind == "stl" or drawn.is_drawn(shape)
+
+
+def surface_file(shape: Shape) -> str:
+    """Name of the shape's file in ``constant/triSurface``."""
+    return f"{shape.name}.stl" if drawn.is_drawn(shape) else shape.file
+
+
+def surface_triangles(shape: Shape, case_dir: Path | None) -> np.ndarray:
+    """The triangles of an imported or drawn shape."""
+    if drawn.is_drawn(shape):
+        return drawn.triangulate(shape)
+    if case_dir is None:
+        raise ValueError(f"the case folder is needed to read the surface of '{shape.name}'")
+    return stl_triangles(Path(case_dir) / "constant" / "triSurface" / shape.file)
+
+
+def drawn_files(project: Project) -> dict[str, str]:
+    """The surface files of the drawn shapes, as ``{relative path: text}``."""
+    return {
+        f"constant/triSurface/{surface_file(s)}": drawn.ascii_stl(s.name, drawn.triangulate(s))
+        for s in project.shapes
+        if drawn.is_drawn(s)
+    }
+
+
+def new_shape(kind: str, name: str, project: Project) -> Shape:
+    """A new shape of a sensible size in the middle of the base mesh, ready to be adjusted."""
+    lo, hi = project.mesh.base.min, project.mesh.base.max
+    cx, cy, cz = ((a + b) / 2 for a, b in zip(lo, hi))
+    size = 0.4 * min(b - a for a, b in zip(lo, hi))
+    half = size / 2
+    shape = Shape(name=name, kind=kind)
+    if kind in ("box", "wedge"):
+        shape.min, shape.max = [cx - half, cy - half, cz - half], [cx + half, cy + half, cz + half]
+    elif kind == "sphere":
+        shape.centre, shape.radius = [cx, cy, cz], half
+    elif kind == "cylinder":
+        shape.point1, shape.point2, shape.radius = [cx - half, cy, cz], [cx + half, cy, cz], half / 2
+    elif kind == "cone":
+        shape.point1, shape.point2 = [cx, cy, cz - half], [cx, cy, cz + half]
+        shape.radius, shape.radius2 = half, half / 2
+    elif kind == "profile":  # a small weir on the bed, right across the base mesh
+        height, width = hi[2] - lo[2], hi[1] - lo[1]
+        bottom, top = lo[2] - 0.25 * height, lo[2] + 0.35 * height
+        shape.points = [[cx - 1.5 * size, bottom], [cx + 1.5 * size, bottom], [cx + half, top], [cx - half, top]]
+        shape.plane, shape.extent = "xz", [lo[1] - 0.5 * width, hi[1] + 0.5 * width]
+    return shape
+
+
+shape_problem = drawn.problem
+triangulate = drawn.triangulate
+
+
+def shape_bounds(shape: Shape, case_dir: Path | None) -> tuple[list[float], list[float]]:
+    if drawn.is_drawn(shape):
+        points = drawn.triangulate(shape).reshape(-1, 3)
+        return points.min(axis=0).tolist(), points.max(axis=0).tolist()
     if shape.kind == "stl":
         return stl_bounds(Path(case_dir) / "constant" / "triSurface" / shape.file)
     if shape.kind == "sphere":
@@ -321,7 +381,7 @@ def frontal_area(project: Project, case_dir: Path, direction) -> float:
             total += along * math.pi * shape.radius**2
             total += math.sqrt(max(0.0, 1.0 - along**2)) * 2.0 * shape.radius * length
         else:
-            triangles = stl_triangles(Path(case_dir) / "constant" / "triSurface" / shape.file)
+            triangles = surface_triangles(shape, case_dir)
             normals = 0.5 * np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
             total += 0.5 * float(np.abs(normals @ d).sum())
     return total
@@ -369,7 +429,7 @@ def mass_properties(shape: Shape, case_dir: Path, density: float) -> tuple[float
         inertia = [across * (1 - a * a) + along * a * a for a in axis]
         return mass, ((p1 + p2) / 2).tolist(), [float(i) for i in inertia]
 
-    triangles = stl_triangles(Path(case_dir) / "constant" / "triSurface" / shape.file)
+    triangles = surface_triangles(shape, case_dir)
     if _open_edges(triangles):
         raise ValueError(f"'{shape.name}' is not a closed surface, so its mass cannot be worked out")
     origin = triangles.reshape(-1, 3).mean(axis=0)

@@ -77,7 +77,26 @@ KIND_ICONS = {
     "waveOutlet": "arrow-right-from-line",
     "constraint": "flip-horizontal",
 }
-SHAPE_ICONS = {"stl": "shapes", "box": "box", "sphere": "circle", "cylinder": "cylinder"}
+SHAPE_ICONS = {
+    "stl": "shapes", "box": "box", "sphere": "circle", "cylinder": "cylinder",
+    "cone": "shape-cone", "wedge": "shape-wedge", "profile": "shape-outline",
+}  # fmt: skip
+#: the shapes that can be drawn: kind -> (name in the menu, what it is for)
+DRAWABLE = {
+    "box": ("Box", "A block: a pier, a step, a gate, a building."),
+    "sphere": ("Sphere", "A ball."),
+    "cylinder": ("Cylinder", "A round bar or a pipe, along any direction."),
+    "cone": ("Cone", "A cone or, with two radii, a tapering round piece such as a nozzle."),
+    "wedge": ("Wedge (ramp)", "A box with a sloping top: a ramp, a chute, a sloping bed."),
+    "profile": ("Outline, drawn by hand", "Draw the cross-section of a weir, spillway or duct; it is extruded into a solid."),
+}
+SHAPE_NAMES = {"stl": "imported surface", "profile": "outline"}
+RISE_LABELS = {"+x": "+x (higher at the far x end)", "-x": "−x", "+y": "+y", "-y": "−y"}
+PLANE_LABELS = {
+    "xz": "the x–z plane (a side view), extruded along y",
+    "xy": "the x–y plane (a plan view), extruded along z",
+    "yz": "the y–z plane (a cross-section), extruded along x",
+}
 KIND_HINTS = {
     "velocityInlet": "Fluid enters with this velocity.",
     "pressureOutlet": "Fluid leaves freely at the given pressure (kinematic gauge pressure, p/rho).",
@@ -174,19 +193,26 @@ class GeometryPanel(Panel):
         self.shape_list = QListWidget()
         self.shape_list.currentRowChanged.connect(self._show_shape)
 
-        import_button = QPushButton(icon("import"), " Import")
+        self.empty_hint = _hint(
+            "No shapes yet. Draw one (a box, a sphere, a cylinder, a cone, a wedge or an outline of your own), "
+            "or import a file from a CAD program. A case without shapes is fine too: the flow then fills the base mesh."
+        )
+        self.import_button = import_button = QPushButton(icon("import"), " Import")
         import_button.clicked.connect(self._import_stl)
-        add_button = QPushButton(icon("plus"), " Add")
-        menu = QMenu(add_button)
-        for kind, label in (("box", "Box"), ("sphere", "Sphere"), ("cylinder", "Cylinder")):
-            menu.addAction(icon(SHAPE_ICONS[kind]), label, lambda k=kind: self.add_primitive(k))
+        self.draw_button = add_button = QPushButton(icon("draw"), " Draw")
+        self.draw_menu = menu = QMenu(add_button)
+        menu.setToolTipsVisible(True)
+        for kind, (label, purpose) in DRAWABLE.items():
+            action = menu.addAction(icon(SHAPE_ICONS[kind]), label, lambda k=kind: self.add_primitive(k))
+            action.setData(kind)
+            action.setToolTip(purpose)
         add_button.setMenu(menu)
         remove_button = QPushButton(icon("trash-2"), " Remove")
         remove_button.clicked.connect(self.remove_selected)
         rename_button = QPushButton(icon("pencil"), " Rename")
         rename_button.clicked.connect(self._ask_new_name)
         import_button.setToolTip("Bring in geometry from an STL, STEP, IGES or BREP file.")
-        add_button.setToolTip("Add a simple shape: box, sphere or cylinder.")
+        add_button.setToolTip("Draw a shape here: a box, sphere, cylinder, cone, wedge, or an outline of your own.")
         rename_button.setToolTip("The shape's name becomes the name of its boundary in the mesh.")
         buttons = QHBoxLayout()
         for b in (import_button, add_button, rename_button, remove_button):
@@ -201,6 +227,39 @@ class GeometryPanel(Panel):
         self.box_max = VectorEdit()
         self.point1 = VectorEdit()
         self.point2 = VectorEdit()
+        self.radius2 = FloatEdit(0.25)
+        self.radius2.setToolTip(
+            "Radius at the end of the axis. 0 makes a pointed cone; the same as the first radius, a cylinder."
+        )
+        self.rise = QComboBox()
+        for key, label in RISE_LABELS.items():
+            self.rise.addItem(label, key)
+        self.rise.setToolTip("The direction in which the top of the wedge rises, from nothing to its full height.")
+        self.plane = QComboBox()
+        for key, label in PLANE_LABELS.items():
+            self.plane.addItem(label, key)
+        self.plane.setToolTip("The plane the outline is drawn in. The solid is made by pushing it through at right angles.")
+        self.extent_from = FloatEdit(0.0)
+        self.extent_to = FloatEdit(1.0)
+        self.extent_row = QWidget()
+        extent_layout = QHBoxLayout(self.extent_row)
+        extent_layout.setContentsMargins(0, 0, 0, 0)
+        extent_layout.addWidget(self.extent_from, 1)
+        extent_layout.addWidget(QLabel("to"))
+        extent_layout.addWidget(self.extent_to, 1)
+        self.extent_row.setToolTip(
+            "Where the solid starts and ends across the drawing plane. Let it reach beyond the base mesh "
+            "on both sides if it should span the whole width."
+        )
+        self.outline_button = QPushButton(icon("shape-outline"), " Draw the outline…")
+        self.outline_button.clicked.connect(self.edit_outline)
+        self.outline_summary = _hint("")
+        self.handles = QCheckBox("Move and resize with the mouse in the 3D view")
+        self.handles.setChecked(True)
+        self.handles.setToolTip(
+            "Shows handles on the selected shape: drag the balls on a box to move its faces, "
+            "drag a sphere to move it, drag the ends of an axis."
+        )
         self.level_min = _spin(0, 10)
         self.level_max = _spin(0, 10)
         self.layers = _spin(0, 20)
@@ -257,6 +316,13 @@ class GeometryPanel(Panel):
         self.form.addRow("Corner (max)", self.box_max)
         self.form.addRow("Axis start", self.point1)
         self.form.addRow("Axis end", self.point2)
+        self.form.addRow("Radius at the end", self.radius2)
+        self.form.addRow("Rises towards", self.rise)
+        self.form.addRow("Drawn in", self.plane)
+        self.form.addRow("Extruded from", self.extent_row)
+        self.form.addRow(self.outline_button)
+        self.form.addRow(self.outline_summary)
+        self.form.addRow(self.handles)
         self.form.addRow("Surface refinement, min", self.level_min)
         self.form.addRow("Surface refinement, max", self.level_max)
         self.form.addRow("Boundary-layer cells", self.layers)
@@ -278,6 +344,7 @@ class GeometryPanel(Panel):
 
         layout = QVBoxLayout(self)
         layout.addWidget(_hint("Surfaces to mesh around, and regions where the mesh should be finer."))
+        layout.addWidget(self.empty_hint)
         layout.addWidget(self.shape_list, 1)
         layout.addLayout(buttons)
         layout.addWidget(self.details)
@@ -290,6 +357,12 @@ class GeometryPanel(Panel):
         self.box_max.changed.connect(lambda: self._set("max", self.box_max.value()))
         self.point1.changed.connect(lambda: self._set("point1", self.point1.value()))
         self.point2.changed.connect(lambda: self._set("point2", self.point2.value()))
+        self.radius2.changed.connect(lambda v: self._set("radius2", v))
+        self.rise.currentIndexChanged.connect(lambda: self._set("rise", self.rise.currentData()))
+        self.plane.currentIndexChanged.connect(lambda: self._set("plane", self.plane.currentData(), refresh=True))
+        self.extent_from.changed.connect(lambda _v: self._set_extent())
+        self.extent_to.changed.connect(lambda _v: self._set_extent())
+        self.handles.toggled.connect(lambda _on: self.changed.emit() if not self._loading else None)
         self.level_min.valueChanged.connect(self._set_level_min)
         self.level_max.valueChanged.connect(self._set_level_max)
         self.layers.valueChanged.connect(lambda v: self._set("layers", v))
@@ -325,11 +398,12 @@ class GeometryPanel(Panel):
                 )
             if self.project.shapes:
                 self.shape_list.setCurrentRow(max(0, min(select, len(self.project.shapes) - 1)))
+        self.empty_hint.setVisible(not self.project.shapes)
         self._show_shape(self.shape_list.currentRow())
 
     @staticmethod
     def _list_text(shape: Shape) -> str:
-        kind = "STL surface" if shape.kind == "stl" else shape.kind
+        kind = SHAPE_NAMES.get(shape.kind, shape.kind)
         tag = MOTION_TAGS.get(shape.motion.kind) if shape.role == "wall" else None
         return f"{shape.name}   ({kind}, {tag})" if tag else f"{shape.name}   ({kind})"
 
@@ -384,6 +458,11 @@ class GeometryPanel(Panel):
             self.box_max.set_value(shape.max)
             self.point1.set_value(shape.point1)
             self.point2.set_value(shape.point2)
+            self.radius2.set_value(shape.radius2)
+            self.rise.setCurrentIndex(max(0, self.rise.findData(shape.rise)))
+            self.plane.setCurrentIndex(max(0, self.plane.findData(shape.plane)))
+            self.extent_from.set_value(shape.extent[0])
+            self.extent_to.set_value(shape.extent[1])
             self.level_min.setValue(shape.level_min)
             self.level_max.setValue(shape.level_max)
             self.layers.setValue(shape.layers)
@@ -415,11 +494,18 @@ class GeometryPanel(Panel):
             self.motion_mass: moves == "floating",
             self.role: shape.kind != "stl",
             self.centre: shape.kind == "sphere",
-            self.radius: shape.kind in ("sphere", "cylinder"),
-            self.box_min: shape.kind == "box",
-            self.box_max: shape.kind == "box",
-            self.point1: shape.kind == "cylinder",
-            self.point2: shape.kind == "cylinder",
+            self.radius: shape.kind in ("sphere", "cylinder", "cone"),
+            self.box_min: shape.kind in ("box", "wedge"),
+            self.box_max: shape.kind in ("box", "wedge"),
+            self.point1: shape.kind in ("cylinder", "cone"),
+            self.point2: shape.kind in ("cylinder", "cone"),
+            self.radius2: shape.kind == "cone",
+            self.rise: shape.kind == "wedge",
+            self.plane: shape.kind == "profile",
+            self.extent_row: shape.kind == "profile",
+            self.outline_button: shape.kind == "profile",
+            self.outline_summary: shape.kind == "profile",
+            self.handles: shape.kind in ("box", "wedge", "sphere", "cylinder", "cone"),
             self.level_min: is_wall,
             self.level_max: is_wall,
             self.layers: is_wall,
@@ -430,6 +516,7 @@ class GeometryPanel(Panel):
         }
         for widget, show in visible.items():
             self.form.setRowVisible(widget, show)
+        self._show_outline(shape)
 
     def _set(self, attribute: str, value, refresh: bool = False) -> None:
         shape = self.selected()
@@ -438,6 +525,69 @@ class GeometryPanel(Panel):
         self.apply(lambda: setattr(shape, attribute, value))
         if refresh and not self._loading:
             self._show_shape(self.shape_list.currentRow())
+
+    # -- drawn shapes
+    def _set_extent(self) -> None:
+        self._set("extent", [self.extent_from.value(), self.extent_to.value()])
+
+    def _show_outline(self, shape: Shape) -> None:
+        if shape.kind != "profile":
+            return
+        wrong = geometry.shape_problem(shape)
+        corners = len(shape.points)
+        self.outline_summary.setText(
+            f"{corners} corners. Not usable yet: {wrong}." if wrong
+            else f"{corners} corners, {abs(shape.extent[1] - shape.extent[0]):g} m long."
+        )  # fmt: skip
+
+    def set_outline(self, points) -> None:
+        """Give the selected outline shape new corners."""
+        shape = self.selected()
+        if shape is None or shape.kind != "profile":
+            return
+        self.apply(lambda: setattr(shape, "points", [[float(u), float(v)] for u, v in points]))
+        self._show_outline(shape)
+
+    def outline_reference(self, shape: Shape) -> tuple[float, float, float, float]:
+        """The base mesh as a rectangle in the plane the outline is drawn in."""
+        from easyfoam.drawn import PLANES
+
+        first, second, _along = PLANES.get(shape.plane, PLANES["xz"])
+        lo, hi = self.project.mesh.base.min, self.project.mesh.base.max
+        return lo[first], lo[second], hi[first], hi[second]
+
+    def edit_outline(self) -> None:
+        from easyfoam.gui.sketch import SketchDialog
+
+        shape = self.selected()
+        if shape is None or shape.kind != "profile":
+            return
+        dialog = SketchDialog(shape.points, shape.plane, self.outline_reference(shape), self)
+        if dialog.exec() == SketchDialog.DialogCode.Accepted:
+            self.set_outline(dialog.values())
+
+    # -- changes made with the mouse in the 3D view
+    def _apply_from_view(self, edit) -> None:
+        shape = self.selected()
+        if shape is None:
+            return
+        self.apply(lambda: edit(shape))
+        self._show_shape(self.shape_list.currentRow())
+
+    def apply_box(self, lo, hi) -> None:
+        def edit(shape):
+            shape.min, shape.max = [round(float(c), 6) for c in lo], [round(float(c), 6) for c in hi]
+
+        self._apply_from_view(edit)
+
+    def apply_centre(self, centre) -> None:
+        self._apply_from_view(lambda shape: setattr(shape, "centre", [round(float(c), 6) for c in centre]))
+
+    def apply_axis(self, start, end) -> None:
+        def edit(shape):
+            shape.point1, shape.point2 = [round(float(c), 6) for c in start], [round(float(c), 6) for c in end]
+
+        self._apply_from_view(edit)
 
     def _fill_regions(self, shape: Shape) -> None:
         self._region_types = {}
@@ -515,7 +665,7 @@ class GeometryPanel(Panel):
     def add_primitive(self, kind: str) -> None:
         if self.project is None:
             return
-        shape = Shape(name=self._unique_name(kind), kind=kind)
+        shape = geometry.new_shape(kind, self._unique_name("outline" if kind == "profile" else kind), self.project)
         self.apply(lambda: self.project.shapes.append(shape))
         self._refill(select=len(self.project.shapes) - 1)
 

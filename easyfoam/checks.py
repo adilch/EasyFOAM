@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from easyfoam.drawn import problem as shape_problem
 from easyfoam.foam.boundaryfile import Patch
 from easyfoam.model import Project
 from easyfoam.solvers import SOLVERS
@@ -110,6 +111,11 @@ def project_issues(project: Project, patches: Sequence[Patch], has_mesh: bool) -
                 Issue("Boundaries", "warning",
                       "Nothing drives the flow yet: give an inlet a velocity or a wall a motion.")  # fmt: skip
             )
+
+    for shape in project.shapes:
+        wrong = shape_problem(shape)
+        if wrong:
+            issues.append(Issue("Geometry", "error", f"The shape '{shape.name}' cannot be used: {wrong}."))
 
     moving = [s for s in project.shapes if s.role == "wall" and s.motion.kind != "none"]
     if moving:

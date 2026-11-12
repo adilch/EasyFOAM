@@ -26,7 +26,8 @@ def wall_shapes(project: Project) -> list[Shape]:
 
 
 def stl_shapes(project: Project) -> list[Shape]:
-    return [s for s in wall_shapes(project) if s.kind == "stl"]
+    """Solid shapes that reach the mesher as a surface file: imported ones and drawn ones."""
+    return [s for s in wall_shapes(project) if geometry.is_surface(s)]
 
 
 def uses_snappy(project: Project) -> bool:
@@ -90,11 +91,10 @@ def location_in_mesh(project: Project, case_dir: Path | None = None) -> list[flo
     if shape is None:
         raise ValueError(f"the fluid is set to be inside '{mesh.fluid_inside}', but there is no such shape")
     base = mesh.base
-    if shape.kind == "stl":
-        if case_dir is None:
+    if geometry.is_surface(shape):
+        if case_dir is None and shape.kind == "stl":
             raise ValueError("the case folder is needed to find a point inside an STL surface")
-        triangles = geometry.stl_triangles(Path(case_dir) / "constant" / "triSurface" / shape.file)
-        return geometry.interior_point(triangles, base.min, base.max)
+        return geometry.interior_point(geometry.surface_triangles(shape, case_dir), base.min, base.max)
     if shape.kind == "cylinder":
         point = _clip_segment(shape.point1, shape.point2, base.min, base.max)
     elif shape.kind == "sphere":
@@ -110,8 +110,8 @@ def location_in_mesh(project: Project, case_dir: Path | None = None) -> list[flo
 
 
 def _geometry_entry(shape: Shape) -> dict:
-    if shape.kind == "stl":
-        return {"type": "triSurfaceMesh", "file": Q(shape.file)}
+    if geometry.is_surface(shape):
+        return {"type": "triSurfaceMesh", "file": Q(geometry.surface_file(shape))}
     if shape.kind == "sphere":
         return {"type": "sphere", "origin": list(shape.centre), "radius": shape.radius}
     if shape.kind == "cylinder":
@@ -167,7 +167,7 @@ def snappy_dict(project: Project, case_dir: Path | None = None, location: list[f
             "maxLoadUnbalance": 0.1,
             "nCellsBetweenLevels": mesh.cells_between_levels,
             "features": (
-                [{"file": Q(PurePath(s.file).stem + ".eMesh"), "level": s.level_min} for s in stls]
+                [{"file": Q(PurePath(geometry.surface_file(s)).stem + ".eMesh"), "level": s.level_min} for s in stls]
                 if explicit
                 else []
             ),
@@ -233,7 +233,7 @@ def feature_extract_dict(project: Project) -> dict | None:
     if not stls:
         return None
     return {
-        s.file: {
+        geometry.surface_file(s): {
             "extractionMethod": "extractFromSurface",
             "includedAngle": 150,
             "subsetFeatures": {"nonManifoldEdges": False, "openEdges": True},

@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Draw your own weir — EasyFOAM tutorials</title>
+<meta name="description" content="No geometry file needed: sketch the cross-section of a weir with the mouse, add a block, and run the flow over them.">
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="25" cy="32" r="8"/><path d="M8 15h14c11 0 13 7 23 7h11M8 49h14c11 0 13-7 23-7h11M41 32h15"/></svg><span>EasyFOAM</span><span class="brand-sub">tutorials</span></a>
+  <nav>
+    <a href="../index.html">All tutorials</a>
+    <a href="../tutorials/getting-started.html">Install</a>
+  </nav>
+</header>
+<div class="layout">
+<aside class="contents">
+  <a class="back" href="../index.html">← All tutorials</a>
+  <p class="contents-title">Steps</p>
+  <ol>
+<li><a href="#step-1">Start an empty project</a></li>
+<li><a href="#step-2">Make the channel first</a></li>
+<li><a href="#step-3">Draw an outline</a></li>
+<li><a href="#step-4">The sketch pad</a></li>
+<li><a href="#step-5">Push it through the channel</a></li>
+<li><a href="#step-6">Add a block and move it with the mouse</a></li>
+<li><a href="#step-7">The mesh</a></li>
+<li><a href="#step-8">Water, air and a full reservoir</a></li>
+<li><a href="#step-9">The inflow and the outflow</a></li>
+<li><a href="#step-10">Run</a></li>
+<li><a href="#step-11">The flow over what you drew</a></li>
+<li><a href="#step-12">Try it yourself</a></li>
+  </ol>
+</aside>
+<main class="tutorial">
+  <p class="crumb">Tutorial 7 of 11</p>
+  <h1>Draw your own weir</h1>
+  <p class="lead">No geometry file needed: sketch the cross-section of a weir with the mouse, add a block, and run the flow over them.</p>
+  <div class="chips"><span class="chip">about 30 min</span><span class="chip level-intermediate">Intermediate</span><span class="chip topic">Free surface</span><span class="chip topic">Hydraulic structures</span><span class="chip topic">Your own geometry</span></div>
+  <p>You do not need a CAD program for simple structures. EasyFOAM can draw six kinds of shape itself: a <strong>box</strong>, a <strong>sphere</strong>, a <strong>cylinder</strong>, a <strong>cone</strong>, a <strong>wedge</strong> (a ramp), and an <strong>outline that you sketch by hand</strong>, which is pushed through the channel to make a solid. That last one covers most hydraulic structures, because a weir, a sill or a spillway is a cross-section that stays the same across the width.</p>
+<p>In this tutorial you sketch a weir with sloping faces, place a block downstream of it with the mouse, and send 50 litres a second over both. Imported files and drawn shapes can be mixed freely in one case.</p>
+  <div class="learn"><h3>What you will learn</h3><ul><li>draw the cross-section of a structure on the sketch pad, by mouse and by typing</li><li>extrude it across the channel</li><li>add a box and move it with the handles in the 3D view</li><li>set up and run the flow over what you drew</li></ul><p class="run-time">Computer time: about a minute for the mesh and a few minutes for the run, on four cores.</p></div>
+<section class="step" id="step-1">
+<h2><span class="step-number">1</span>Start an empty project</h2>
+<ol class="marks"><li>Click <strong>New project</strong>, name it <code>my-weir</code> and click <strong>Create project</strong>.</li></ol>
+<figure><a href="img/draw-shapes/01.webp" class="zoom"><img src="img/draw-shapes/01.webp" alt="Draw your own weir, step 1: Start an empty project" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-2">
+<h2><span class="step-number">2</span>Make the channel first</h2>
+<p>Go to the <strong>Mesh</strong> step before drawing anything. New shapes appear in the middle of the base mesh at a size that fits it, so it pays to have the channel in place first: 6 m long, 0.5 m wide and 1.5 m high, with a solid bed and an open top.</p>
+<ol class="marks"><li><strong>Corner (min)</strong> <code>0</code>, <code>0</code>, <code>0</code> and <strong>Corner (max)</strong> <code>6</code>, <code>0.5</code>, <code>1.5</code>.</li><li><strong>Cells</strong>: <code>96</code>, <code>8</code>, <code>24</code>.</li><li><strong>zMin</strong>: name <code>bed</code>, type <code>wall</code>.</li><li><strong>zMax</strong>: name <code>atmosphere</code>, type <code>patch</code>.</li><li>Click <strong>Fit</strong>.</li></ol>
+<figure><a href="img/draw-shapes/02.webp" class="zoom"><img src="img/draw-shapes/02.webp" alt="Draw your own weir, step 2: Make the channel first" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-3">
+<h2><span class="step-number">3</span>Draw an outline</h2>
+<p>Go back to the <strong>Geometry</strong> step. There are two ways to get a shape: <strong>Import</strong> brings in a file, <strong>Draw</strong> makes one here. Choose <strong>Draw</strong>, then <strong>Outline, drawn by hand</strong>.</p>
+<p>A first outline appears: a small weir standing on the bed, reaching right through both side walls.</p>
+<ol class="marks"><li>Click <strong>Draw</strong> and choose <strong>Outline, drawn by hand</strong>.</li><li>The new shape, <code>outline1</code>.</li><li>Click <strong>Draw the outline…</strong> to change its shape.</li></ol>
+<figure><a href="img/draw-shapes/03.webp" class="zoom"><img src="img/draw-shapes/03.webp" alt="Draw your own weir, step 3: Draw an outline" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-4">
+<h2><span class="step-number">4</span>The sketch pad</h2>
+<p>The pad shows the channel from the side, with the base mesh as a dashed rectangle so that you can see where the bed and the walls are. Draw with the mouse:</p>
+<ul><li><strong>click</strong> to add a corner, or click on a side to add one there;</li><li><strong>drag</strong> a corner to move it;</li><li><strong>right-click</strong> a corner to remove it;</li><li>the <strong>wheel</strong> zooms.</li></ul>
+<p>For exact sizes, type the corners into the table. Here the weir is 0.5 m high with a 0.3 m wide crest and sloping faces, and its foot lies 0.3 m <em>below</em> the bed so that the mesh is cut cleanly.</p>
+<ol class="marks"><li><strong>Start from…</strong> offers ready-made outlines: choose <em>Trapezoid (weir)</em>.</li><li>Drag the corners, or add and remove some.</li><li>Type the corners: <code>2.3, -0.3</code>, then <code>3.5, -0.3</code>, <code>3.05, 0.5</code> and <code>2.75, 0.5</code>.</li><li>Corners snap to this distance; untick <strong>Snap to</strong> to place them freely.</li><li>Click <strong>Use this outline</strong>.</li></ol>
+<figure><a href="img/draw-shapes/04.webp" class="zoom"><img src="img/draw-shapes/04.webp" alt="Draw your own weir, step 4: The sketch pad" loading="lazy" width="1225" height="750"></a></figure>
+<aside class="tip"><p>An outline may have as many corners as you like and need not bulge outwards everywhere, but its sides must not cross each other. The pad turns red and says so if they do.</p></aside>
+</section>
+<section class="step" id="step-5">
+<h2><span class="step-number">5</span>Push it through the channel</h2>
+<p>The outline is drawn in the x–z plane, a side view, and extruded along y. Let it start before one side wall and end beyond the other, so that it spans the whole width.</p>
+<ol class="marks"><li><strong>Drawn in</strong>: <em>the x–z plane (a side view), extruded along y</em>.</li><li><strong>Extruded from</strong> <code>-0.25</code> <strong>to</strong> <code>0.75</code>: a quarter of a metre beyond each wall.</li><li><strong>Surface refinement</strong>: <code>1</code> and <code>1</code>.</li></ol>
+<figure><a href="img/draw-shapes/05.webp" class="zoom"><img src="img/draw-shapes/05.webp" alt="Draw your own weir, step 5: Push it through the channel" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-6">
+<h2><span class="step-number">6</span>Add a block and move it with the mouse</h2>
+<p>Now a second shape: <strong>Draw</strong>, then <strong>Box</strong>. With <strong>Move and resize with the mouse</strong> ticked, the selected shape shows handles in the 3D view. Drag the small balls on the faces of a box to move its faces; drag a sphere to move it; drag the ends of the axis of a cylinder or a cone. The numbers on the left follow, and you can always type them instead.</p>
+<p>Place the block downstream of the weir, standing on the bed in the middle of the channel.</p>
+<ol class="marks"><li>Click <strong>Draw</strong> and choose <strong>Box</strong>.</li><li><strong>Move and resize with the mouse in the 3D view</strong> is ticked.</li><li>Drag the handles on the box.</li><li>Or type: <strong>Corner (min)</strong> <code>4.2</code>, <code>0.15</code>, <code>-0.1</code> and <strong>Corner (max)</strong> <code>4.4</code>, <code>0.35</code>, <code>0.2</code>.</li><li>Click <strong>Mesh</strong> in the toolbar (or press <strong>F5</strong>).</li></ol>
+<figure><a href="img/draw-shapes/06.webp" class="zoom"><img src="img/draw-shapes/06.webp" alt="Draw your own weir, step 6: Add a block and move it with the mouse" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-7">
+<h2><span class="step-number">7</span>The mesh</h2>
+<p>Both shapes are cut out of the channel. Drawn shapes are written into the project as surface files when the mesh is made, so the case is complete without EasyFOAM.</p>
+<ol class="marks"><li>The number of cells and a green tick.</li><li>The weir and the block in the channel.</li></ol>
+<figure><a href="img/draw-shapes/07.webp" class="zoom"><img src="img/draw-shapes/07.webp" alt="Draw your own weir, step 7: The mesh" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-8">
+<h2><span class="step-number">8</span>Water, air and a full reservoir</h2>
+<p>The rest is the same as for any channel; the tutorial on the weir explains each choice. In the <strong>Physics</strong> step choose the free-surface flow type, a turbulence model and water, then scroll down and click <strong>Add box</strong> to fill the reservoir up to the crest.</p>
+<ol class="marks"><li>Click <strong>Add box</strong>.</li><li>Type <code>0</code>, <code>0</code>, <code>0</code> and <code>2.75</code>, <code>0.5</code>, <code>0.5</code>.</li></ol>
+<figure><a href="img/draw-shapes/08.webp" class="zoom"><img src="img/draw-shapes/08.webp" alt="Draw your own weir, step 8: Water, air and a full reservoir" loading="lazy" width="1900" height="1125"></a></figure>
+<aside class="tip"><p>At the top of this step: <strong>Flow type</strong> <em>Free surface: water and air</em>, <strong>Turbulence</strong> <em>k-omega SST</em>, <strong>Fluid</strong> <em>Water</em>.</p></aside>
+</section>
+<section class="step" id="step-9">
+<h2><span class="step-number">9</span>The inflow and the outflow</h2>
+<p>Fifty litres a second come in; whatever arrives at the far end leaves. Select <strong>outlet</strong> as well and set its <strong>Condition</strong> to <em>Free outflow</em>.</p>
+<ol class="marks"><li>Select <strong>inlet</strong>.</li><li><strong>Condition</strong>: <em>Inlet by flow rate</em>.</li><li><strong>Flow rate</strong>: <code>0.05</code> m³/s.</li><li>Then select <strong>outlet</strong> and choose <em>Free outflow</em>.</li></ol>
+<figure><a href="img/draw-shapes/09.webp" class="zoom"><img src="img/draw-shapes/09.webp" alt="Draw your own weir, step 9: The inflow and the outflow" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-10">
+<h2><span class="step-number">10</span>Run</h2>
+<ol class="marks"><li><strong>End time</strong>: <code>12</code> s.</li><li><strong>Time step</strong>: <code>0.001</code> s.</li><li><strong>Keep the Courant number below</strong> <code>0.7</code>.</li><li><strong>Save every</strong>: <code>0.5</code> s.</li><li><strong>Processor cores</strong>: <code>4</code>, or as many as you have.</li><li>Click <strong>Run</strong> in the toolbar (or press <strong>F6</strong>).</li></ol>
+<figure><a href="img/draw-shapes/10.webp" class="zoom"><img src="img/draw-shapes/10.webp" alt="Draw your own weir, step 10: Run" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-11">
+<h2><span class="step-number">11</span>The flow over what you drew</h2>
+<p>The water rises behind the weir, spills over the crest, runs down the sloping face and parts around the block on the bed.</p>
+<ol class="marks"><li><strong>Show</strong>: <em>Water surface</em>, coloured by <code>U</code>, the speed.</li><li>Step through <strong>Saved time</strong> to watch the reservoir fill and the flow settle.</li></ol>
+<figure><a href="img/draw-shapes/11.webp" class="zoom"><img src="img/draw-shapes/11.webp" alt="Draw your own weir, step 11: The flow over what you drew" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-12">
+<h2><span class="step-number">12</span>Try it yourself</h2>
+<ul><li>Open the sketch pad again and choose <em>Rounded crest (spillway)</em>: the same case with an ogee crest.</li><li>Add a <strong>Wedge</strong> downstream as a ramp, and choose which way it rises.</li><li>Draw a <strong>Cylinder</strong> standing in the channel as a bridge pier, and switch on the force monitor in the Run step to see the load on it.</li><li>Give the block a <strong>Motion</strong> and it becomes a gate; give it a density and it floats.</li></ul>
+</section>
+  <nav class="pager"><a class="prev" href="weir.html"><span>Previous</span>Flow over a weir</a><a class="next" href="waves.html"><span>Next</span>Waves in a flume</a></nav>
+</main>
+</div>
+<div class="lightbox" hidden><img alt=""></div>
+<footer class="foot">
+  <p>EasyFOAM is free software (GPL-3.0-or-later). It is an independent project: it is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com and owner of the OPENFOAM® and OpenCFD® trade marks, and it is not affiliated with any other vendor of simulation software.</p>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>

@@ -655,6 +655,8 @@ class MainWindow(QMainWindow):
         """Mark the shape or boundary selected in the list, on the steps where that helps."""
         if self.viewer is not None:
             self.viewer.highlight(name if self.current_step() in ("Geometry", "Boundaries") else "")
+            if self.current_step() == "Geometry":
+                self._view_timer.start()  # the handles belong to the selected shape
 
     def _selected_name(self) -> str:
         step = self.current_step()
@@ -1102,8 +1104,12 @@ class MainWindow(QMainWindow):
         try:
             has_mesh = bool(self.mesh_patches())
             if step == "Geometry" or not has_mesh:
+                handles = None
+                selected = self.geometry_panel.selected()
+                if step == "Geometry" and selected is not None and self.geometry_panel.handles.isChecked():
+                    handles = (selected, self.geometry_panel)  # move and resize it with the mouse
                 self.viewer.show_geometry(
-                    self.project, self.case_dir, self._point_dragged if step == "Mesh" else None
+                    self.project, self.case_dir, self._point_dragged if step == "Mesh" else None, handles
                 )
                 return
             types = {p.name: p.type for p in self.mesh_patches()}
@@ -1147,7 +1153,8 @@ class MainWindow(QMainWindow):
         self.notify(
             "Getting started",
             "Work through the steps on the left, top to bottom:\n\n"
-            "1. Geometry: import an STL file or add simple shapes.\n"
+            "1. Geometry: draw shapes (box, sphere, cylinder, cone, wedge, or an outline of your own) "
+            "or import a file (STL, STEP).\n"
             "2. Mesh: size the base mesh, then press Generate mesh.\n"
             "3. Physics: choose steady or transient flow, the turbulence model and the fluid.\n"
             "4. Boundaries: say what each boundary is (inlet, outlet, wall).\n"

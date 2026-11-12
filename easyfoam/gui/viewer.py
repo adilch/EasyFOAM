@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QToolButton, QVBoxLayout
 from pyvistaqt import QtInteractor  # noqa: E402
 
 from easyfoam.casegen.mesh import auto_location_in_mesh, location_in_mesh, uses_snappy  # noqa: E402
+from easyfoam.drawn import is_drawn, triangulate
 from easyfoam.gui.icons import icon  # noqa: E402
 from easyfoam.model import FACES, Project, Shape  # noqa: E402
 from easyfoam.results import CaseData  # noqa: E402
@@ -35,7 +36,14 @@ AXIS = {"x": 0, "y": 1, "z": 2}
 
 
 def shape_surface(shape: Shape, case_dir: Path):
-    """A PyVista surface for a shape, or ``None`` when its STL file is missing."""
+    """A PyVista surface for a shape, or ``None`` when its file is missing or it cannot be drawn yet."""
+    if is_drawn(shape):
+        try:
+            triangles = triangulate(shape)
+        except ValueError:
+            return None  # for example an outline with two corners so far
+        faces = np.column_stack([np.full(len(triangles), 3), np.arange(3 * len(triangles)).reshape(-1, 3)])
+        return pv.PolyData(triangles.reshape(-1, 3), faces.ravel()).clean()
     if shape.kind == "stl":
         path = Path(case_dir) / "constant" / "triSurface" / shape.file
         return pv.read(str(path)) if path.is_file() else None
@@ -125,6 +133,8 @@ class Viewer(QWidget):
         fresh = scene != self._scene
         self._scene = scene
         self.plotter.clear_sphere_widgets()
+        self.plotter.clear_box_widgets()
+        self.plotter.clear_line_widgets()
         self.plotter.clear()
         self._parts = {}
         return fresh
@@ -190,7 +200,56 @@ class Viewer(QWidget):
         return self.plotter.screenshot(return_img=True)
 
     # -- scenes
-    def show_geometry(self, project: Project, case_dir: Path, on_point_moved=None) -> None:
+    def _add_handles(self, shape: Shape, target) -> None:
+        """Handles to move and resize a shape with the mouse; ``target`` receives the new values."""
+
+        def moved(new, old) -> bool:
+            size = max(1e-9, max(abs(float(c)) for c in old))
+            return any(abs(float(a) - float(b)) > 1e-6 * size for a, b in zip(new, old))
+
+        if shape.kind in ("box", "wedge"):
+            (x0, y0, z0), (x1, y1, z1) = shape.min, shape.max
+
+            def box_moved(box) -> None:
+                lo, hi = list(box.bounds[0::2]), list(box.bounds[1::2])
+                if moved(lo + hi, list(shape.min) + list(shape.max)):
+                    target.apply_box(lo, hi)
+
+            widget = self.plotter.add_box_widget(
+                box_moved, bounds=(x0, x1, y0, y1, z0, z1), factor=1.0, rotation_enabled=False,
+                color=HIGHLIGHT, interaction_event="end",
+            )  # fmt: skip
+            widget.SetHandleSize(0.014)  # large enough to grab, in parts of the view
+            widget.GetHandleProperty().SetColor(0.145, 0.388, 0.922)
+        elif shape.kind == "sphere":
+
+            def centre_moved(centre) -> None:
+                if moved(centre, shape.centre):
+                    target.apply_centre(centre)
+
+            self.plotter.add_sphere_widget(
+                centre_moved, center=shape.centre, radius=1.03 * shape.radius, style="wireframe",
+                color=HIGHLIGHT, theta_resolution=16, phi_resolution=16, test_callback=False,
+                interaction_event="end",
+            )  # fmt: skip
+        elif shape.kind in ("cylinder", "cone"):
+
+            placed = []  # the widget reports its own starting position once, before it is put on the axis
+
+            def axis_moved(start, end) -> None:
+                if placed and moved(list(start) + list(end), list(shape.point1) + list(shape.point2)):
+                    target.apply_axis(start, end)
+
+            widget = self.plotter.add_line_widget(
+                axis_moved, use_vertices=True, color=HIGHLIGHT, interaction_event="end"
+            )
+            widget.SetPoint1(*[float(c) for c in shape.point1])
+            widget.SetPoint2(*[float(c) for c in shape.point2])
+            widget.SetHandleSize(0.014)
+            widget.GetHandleProperty().SetColor(0.145, 0.388, 0.922)
+            placed.append(True)
+
+    def show_geometry(self, project: Project, case_dir: Path, on_point_moved=None, handles=None) -> None:
         fresh = self._begin("geometry")
         base = project.mesh.base
         (x0, y0, z0), (x1, y1, z1) = base.min, base.max
@@ -233,8 +292,10 @@ class Viewer(QWidget):
                 )  # fmt: skip
             else:
                 self.plotter.add_mesh(pv.Sphere(radius=size, center=point), color="#e45756", reset_camera=False)
+        if handles is not None:
+            self._add_handles(*handles)
         if missing:
-            self.plotter.add_text("Missing STL: " + ", ".join(missing), font_size=10, color="#b33")
+            self.plotter.add_text("Cannot show yet: " + ", ".join(missing), font_size=10, color="#b33")
         self._end(fresh)
 
     def _add_patches(self, data: CaseData, patch_types: Mapping[str, str], field: str | None, edges: bool):

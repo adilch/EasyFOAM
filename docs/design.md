@@ -48,6 +48,7 @@ easyfoam/
   model.py            Project dataclasses <-> easyfoam.json
   solvers.py          supported solvers, turbulence models, materials
   geometry.py         STL import, bounding boxes, base-mesh sizing
+  drawn.py            shapes drawn in the program (cone, wedge, sketched outline) -> triangles
   foam/
     dictfmt.py        Python data -> OpenFOAM dictionary text
     boundaryfile.py   read constant/polyMesh/boundary
@@ -77,6 +78,14 @@ Rules that keep it testable:
   default from their type and name.
 - The GUI never builds dictionaries itself; it edits the project and calls
   `pipeline`.
+
+## Drawn shapes
+
+The mesher knows boxes, spheres and cylinders itself. A cone, a wedge and a sketched outline are
+turned into triangles by `drawn.py` and written as `constant/triSurface/<name>.stl` together with
+the other mesh files. From there on they are treated exactly like an imported surface, so nothing
+else in the program needs to know about them. The outline is cut into triangles by ear clipping,
+which copes with outlines that are not convex; one whose sides cross is refused.
 
 ## Moving shapes
 

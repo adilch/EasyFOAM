@@ -127,6 +127,27 @@ Open items:
 Open items: tutorials for non-Newtonian fluids, the tracer, the tailwater outlet and CAD (STEP)
 import; a search box; translations.
 
+## v0.8 - draw your own shapes (this version)
+
+Done:
+
+- Three more shapes to draw next to box, sphere and cylinder: a cone (or tapering round piece), a
+  wedge (ramp), and an outline sketched by hand that is extruded across the plane it is drawn in.
+- A sketch pad for the outline: click to add corners, drag them, right-click to remove them, snap
+  to a grid, type exact corners in a table, start from a rectangle, triangle, trapezoid or rounded
+  spillway crest. Outlines need not be convex; one whose sides cross is refused with a message.
+- Handles in the 3D view to move and resize the selected box, wedge, sphere, cylinder or cone.
+- New shapes appear inside the base mesh at a size that fits it.
+- Drawn shapes are written into the case as surface files when the mesh is made, so they work
+  wherever an imported file does (flow inside them, floating, refinement regions) and the case
+  stays complete without EasyFOAM.
+
+Open items:
+
+- Turning a box or a wedge (they follow the axes); revolving an outline about an axis.
+- Arcs and curves in the sketch (only straight sides for now); several outlines in one shape (holes).
+- Saving a drawn shape as an STL file for use elsewhere.
+
 ## Next for hydraulics
 
 1. Cavitating flow in closed conduits (interPhaseChangeFoam: Schnerr-Sauer, Kunz, Merkle).

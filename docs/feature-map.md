@@ -59,7 +59,7 @@ current version, through WSL or natively), keeps **plain case folders** that
 remain usable by hand, and has no cell or core limits. That is the space
 EasyFOAM aims at. If that distinction does not matter to you, use BARAM.
 
-## Where EasyFOAM stands (v0.7)
+## Where EasyFOAM stands (v0.8)
 
 Legend: done = works and is tested end to end; partial; planned = see roadmap.
 
@@ -70,6 +70,10 @@ Legend: done = works and is tested end to end; partial; planned = see roadmap.
 | Plain case folder, exact scripts kept in `.easyfoam/`, logs as `log.<step>` | done |
 | Command line for every operation (batch use) | done |
 | STL import (ASCII and binary), box / sphere / cylinder primitives | done |
+| Drawn shapes: cone, wedge (ramp), and an outline sketched with the mouse and extruded | done |
+| Sketch pad: click, drag and delete corners, snap to a grid, type exact corners, ready-made outlines | done |
+| Move and resize shapes with handles in the 3D view | done |
+| Rotating boxes and wedges, revolving an outline, curved sides in the sketch | planned |
 | STL regions (named solids) as separate patches, each a wall or an opening | done |
 | STEP / IGES / BREP import (optional gmsh package), each CAD face usable as its own boundary | done |
 | Length unit on import (m, cm, mm, in) | done |

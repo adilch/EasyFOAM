@@ -3,6 +3,7 @@
 from website.tutorials import (
     cavity,
     dambreak,
+    draw,
     floating,
     gate,
     getting_started,
@@ -20,6 +21,7 @@ ALL = [
     sphere.TUTORIAL,
     dambreak.TUTORIAL,
     weir.TUTORIAL,
+    draw.TUTORIAL,
     waves.TUTORIAL,
     gate.TUTORIAL,
     floating.TUTORIAL,

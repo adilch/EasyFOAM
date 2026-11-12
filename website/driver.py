@@ -83,6 +83,23 @@ class Driver:
         self.dialog.show()
         self.settle(0.4)
 
+    def open_sketch(self) -> None:
+        """Open the pad on which the selected outline is drawn (without blocking), to be pictured."""
+        from easyfoam.gui.sketch import SketchDialog
+
+        panel = self.w.geometry_panel
+        shape = panel.selected()
+        self.dialog = SketchDialog(shape.points, shape.plane, panel.outline_reference(shape), self.w)
+        self.dialog.setModal(False)
+        self.dialog.show()
+        self.settle(0.5)
+
+    def accept_sketch(self) -> None:
+        """Press "Use this outline"."""
+        self.w.geometry_panel.set_outline(self.dialog.values())
+        self.close_dialog()
+        self.settle(0.6)
+
     def close_dialog(self) -> None:
         if self.dialog is not None:
             self.dialog.close()

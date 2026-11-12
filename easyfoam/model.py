@@ -52,7 +52,7 @@ class Shape:
     """A piece of geometry: an STL surface or a primitive."""
 
     name: str
-    kind: str = "stl"  # stl | box | sphere | cylinder
+    kind: str = "stl"  # stl | box | sphere | cylinder | cone | wedge | profile (a sketched outline, extruded)
     file: str = ""  # STL file name inside constant/triSurface
     role: str = "wall"  # wall = meshed surface; refinement = region to refine only
     min: list[float] = _vec(0, 0, 0)  # box
@@ -61,6 +61,12 @@ class Shape:
     radius: float = 0.5  # sphere, cylinder
     point1: list[float] = _vec(0, 0, 0)  # cylinder axis
     point2: list[float] = _vec(1, 0, 0)
+    radius2: float = 0.25  # cone: radius at the second end (0 = a point)
+    rise: str = "+x"  # wedge: the direction in which its top rises (+x, -x, +y, -y)
+    #: profile: the corners of its outline, in the plane it is drawn in
+    points: list[list[float]] = field(default_factory=lambda: [[0.0, 0.0], [1.0, 0.0], [0.5, 1.0]])
+    plane: str = "xz"  # profile: the plane it is drawn in (xz, xy or yz); it is extruded across that plane
+    extent: list[float] = field(default_factory=lambda: [0.0, 1.0])  # profile: where the extrusion starts and ends
     level_min: int = 1  # surface refinement (role wall)
     level_max: int = 2
     layers: int = 0  # boundary-layer cells on this surface

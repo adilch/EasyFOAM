@@ -6,6 +6,7 @@ import shutil
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from easyfoam import geometry as _geometry
 from easyfoam.casegen import mesh as _mesh
 from easyfoam.casegen import motion as _motion
 from easyfoam.casegen import setup as _setup
@@ -41,6 +42,7 @@ def mesh_files(project: Project, case_dir: Path | None = None) -> dict[str, str]
         files["system/snappyHexMeshDict"] = foam_file(
             "dictionary", "snappyHexMeshDict", _mesh.snappy_dict(project, case_dir)
         )
+        files.update(_geometry.drawn_files(project))  # drawn shapes reach the mesher as surface files
         features = _mesh.feature_extract_dict(project)
         if features is not None:
             files["system/surfaceFeatureExtractDict"] = foam_file(

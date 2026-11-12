@@ -6,7 +6,7 @@ Geometry, meshing, case set-up, running and results in one window, driving
 
 ![EasyFOAM workspace](docs/images/Forces.png)
 
-Status: **v0.7, alpha.** The whole loop works for incompressible flow around
+Status: **v0.8, alpha.** The whole loop works for incompressible flow around
 bodies, inside pipes and ducts, and with a free water surface (weirs, spillways,
 dam breaks), including gates that move and bodies that float; see
 [what works](#what-works-today) and the [roadmap](docs/roadmap.md).
@@ -37,7 +37,7 @@ Good free tools already exist: [BARAM](https://github.com/nextfoam/baram)
 
 | | |
 |---|---|
-| Geometry | STEP / IGES / BREP import (optional `gmsh` package), length unit chosen on import; STL import (ASCII and binary), with each named solid of an STL usable as a wall or an opening; box, sphere, cylinder primitives; shapes as solid surfaces or refinement regions |
+| Geometry | Draw shapes in the program: box, sphere, cylinder, cone, wedge (ramp), and an outline sketched with the mouse and extruded (the cross-section of a weir, spillway or duct); move and resize them with handles in the 3D view. Or import: STEP / IGES / BREP (optional `gmsh` package) and STL (ASCII and binary), with the length unit chosen on import and each named solid of an STL usable as a wall or an opening. Drawn and imported shapes mix freely, as solid surfaces or refinement regions |
 | Mesh | Base mesh box with named faces; automatic sizing (wind tunnel, or snug box for internal flow); snappyHexMesh with surface refinement, refinement regions and by distance, feature edges and boundary layers; fluid outside or inside a shape; checkMesh report |
 | Free surface | Water and air with a free surface (interFoam): gravity, surface tension, water placed as boxes or filled to a level, time step that follows the water surface; a sharper-interface variant (interIsoFoam); waves (Stokes 1st, 2nd and 5th order, cnoidal, solitary) with a wave maker and an absorbing outlet; contact angle; mesh refinement that follows the water surface; cavitation index; discharge and water-depth monitors |
 | Moving shapes | A solid shape can move to a new position over a set time (a gate that opens), swing back and forth, or float: a floating body is moved by the water and its own weight (6DoF), with its mass and inertia worked out from its shape and density; live plot of position and tilt |
@@ -52,7 +52,7 @@ rotating machinery, STEP import, …) is listed with its status in
 
 ## Tutorials
 
-Ten step-by-step tutorials, from installing to a spillway built from your own STL file, are in [docs/](docs/index.html) as a
+Eleven step-by-step tutorials, from installing to a spillway built from your own STL file, are in [docs/](docs/index.html) as a
 small website: open `docs/index.html` in a browser. Every click is numbered in a picture of the
 real program and every value is given.
 
@@ -63,6 +63,7 @@ real program and every value is given.
 | Dam break | Flow over a weir |
 | Waves in a flume | Lifting sluice gate |
 | Floating box | Spillway from your own geometry (STL) |
+| Draw your own weir (sketch pad and mouse handles) | |
 
 The site is made from the tutorial descriptions in `website/tutorials/`. The same description
 operates the real application to take the pictures and produces the page text, so the two cannot
