@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Floating box — EasyFOAM tutorials</title>
+<meta name="description" content="A body that the water moves: a box is let go a little too high and bobs until it floats at rest.">
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="25" cy="32" r="8"/><path d="M8 15h14c11 0 13 7 23 7h11M8 49h14c11 0 13-7 23-7h11M41 32h15"/></svg><span>EasyFOAM</span><span class="brand-sub">tutorials</span></a>
+  <nav>
+    <a href="../index.html">All tutorials</a>
+    <a href="../tutorials/getting-started.html">Install</a>
+  </nav>
+</header>
+<div class="layout">
+<aside class="contents">
+  <a class="back" href="../index.html">← All tutorials</a>
+  <p class="contents-title">Steps</p>
+  <ol>
+<li><a href="#step-1">Open the example</a></li>
+<li><a href="#step-2">Name the project</a></li>
+<li><a href="#step-3">The box floats</a></li>
+<li><a href="#step-4">A mesh that suits the water level</a></li>
+<li><a href="#step-5">The mesh around the box</a></li>
+<li><a href="#step-6">Fill the tank</a></li>
+<li><a href="#step-7">Run for four seconds</a></li>
+<li><a href="#step-8">Watch it bob</a></li>
+<li><a href="#step-9">The water around the box</a></li>
+<li><a href="#step-10">Check it with Archimedes</a></li>
+<li><a href="#step-11">Try it yourself</a></li>
+  </ol>
+</aside>
+<main class="tutorial">
+  <p class="crumb">Tutorial 9 of 10</p>
+  <h1>Floating box</h1>
+  <p class="lead">A body that the water moves: a box is let go a little too high and bobs until it floats at rest.</p>
+  <div class="chips"><span class="chip">about 25 min</span><span class="chip level-intermediate">Intermediate</span><span class="chip topic">Free surface</span><span class="chip topic">Moving shapes</span><span class="chip topic">Checked against theory</span></div>
+  <p>A floating body is not moved by you but by the water and its own weight. EasyFOAM works out the body's mass from its shape and the density you give, and the solver then moves it in step with the flow. This is often called a <em>6DoF</em> simulation, for the six ways a rigid body can move.</p>
+<p>The body here is a flat box, 0.3 × 0.3 × 0.12 m, half as dense as water. It is drawn 3 cm higher than where it will float, so when the run starts it drops, overshoots, and bobs with ever smaller swings. Where it ends up can be checked with Archimedes' principle.</p>
+  <div class="learn"><h3>What you will learn</h3><ul><li>make a shape float: density and freedom of movement</li><li>choose a mesh that suits a floating body</li><li>follow the body's position while the run goes on</li><li>check the floating depth by hand</li></ul><p class="run-time">Computer time: about a minute for the mesh and one to two minutes for the run, on four cores.</p></div>
+<section class="step" id="step-1">
+<h2><span class="step-number">1</span>Open the example</h2>
+<p>Start EasyFOAM. This case is one of the examples on the start page: it comes with every setting filled in, and this tutorial walks through each of them so that you understand the case and could build it yourself.</p>
+<ol class="marks"><li>Click <strong>Floating box</strong>.</li></ol>
+<figure><a href="img/floating/01.webp" class="zoom"><img src="img/floating/01.webp" alt="Floating box, step 1: Open the example" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-2">
+<h2><span class="step-number">2</span>Name the project</h2>
+<p>The project is an ordinary folder that EasyFOAM creates for you.</p>
+<ol class="marks"><li>Type a name, for example <code>floating</code>.</li><li>Click <strong>Create project</strong>.</li></ol>
+<figure><a href="img/floating/02.webp" class="zoom"><img src="img/floating/02.webp" alt="Floating box, step 2: Name the project" loading="lazy" width="650" height="248"></a></figure>
+</section>
+<section class="step" id="step-3">
+<h2><span class="step-number">3</span>The box floats</h2>
+<p>The box is an ordinary shape with <strong>Motion</strong> set to <em>Floats</em>. Two things describe it:</p>
+<ul><li>its <strong>density</strong>. Below the density of water (about 1000 kg/m³) a body floats, above it sinks;</li><li>how it is <strong>free to move</strong>. <em>Up and down only</em> is the quickest and steadiest choice and enough to find how deep a body floats. The other choices let it slide and pitch, or move in all six ways.</li></ul>
+<p>EasyFOAM shows the mass it has worked out, so a wrong size or density is noticed at once.</p>
+<ol class="marks"><li>The shape <strong>box</strong>. The list notes that it floats.</li><li>It reaches from z = <code>0.37</code> to <code>0.49</code>: 0.12 m high, with its middle at 0.43 m.</li><li><strong>Motion</strong>: <em>Floats (moved by the water)</em>.</li><li><strong>Density</strong>: <code>500</code> kg/m³.</li><li><strong>Free to move</strong>: <em>Up and down only</em>.</li><li>The mass: 5.4 kg.</li></ol>
+<figure><a href="img/floating/03.webp" class="zoom"><img src="img/floating/03.webp" alt="Floating box, step 3: The box floats" loading="lazy" width="1900" height="1125"></a></figure>
+<aside class="tip"><p>A body imported from an STL file floats in the same way, as long as its surface is closed.</p></aside>
+</section>
+<section class="step" id="step-4">
+<h2><span class="step-number">4</span>A mesh that suits the water level</h2>
+<p>The tank is 1 m × 0.8 m and 0.8 m high. The cell size is chosen with care: <strong>4 cm cells put a boundary between two layers of cells exactly at 0.40 m</strong>, where the water surface will be. Water is placed in whole cells, so with any other cell size the starting level would be rounded to the nearest layer and the body would float a little higher or lower than you expect.</p>
+<ol class="marks"><li><strong>Corner (max)</strong>: <code>1</code>, <code>0.8</code>, <code>0.8</code>.</li><li><strong>Cells</strong>: <code>25</code>, <code>20</code>, <code>20</code>, which makes 4 cm cubes.</li><li>Click <strong>Mesh</strong> in the toolbar (or press <strong>F5</strong>).</li></ol>
+<figure><a href="img/floating/04.webp" class="zoom"><img src="img/floating/04.webp" alt="Floating box, step 4: A mesh that suits the water level" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-5">
+<h2><span class="step-number">5</span>The mesh around the box</h2>
+<p>The box is cut out of the mesh, with finer cells around it. During the run the cells close to the box move with it and the cells further away stay where they are; the ones in between stretch.</p>
+<ol class="marks"><li>The number of cells, about 14,000.</li><li>The box hangs in the middle of the tank.</li></ol>
+<figure><a href="img/floating/05.webp" class="zoom"><img src="img/floating/05.webp" alt="Floating box, step 5: The mesh around the box" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-6">
+<h2><span class="step-number">6</span>Fill the tank</h2>
+<p>A floating body needs the free-surface flow type, <em>Free surface: water and air</em>, which is already chosen at the top of the <strong>Physics</strong> step. Scroll down to <strong>Water and air</strong>: the water fills the tank to 0.4 m.</p>
+<ol class="marks"><li>One box of water, as wide as the tank and <code>0.4</code> m deep.</li></ol>
+<figure><a href="img/floating/06.webp" class="zoom"><img src="img/floating/06.webp" alt="Floating box, step 6: Fill the tank" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-7">
+<h2><span class="step-number">7</span>Run for four seconds</h2>
+<p>Four seconds are about five bobs of the box: enough to see where it settles.</p>
+<ol class="marks"><li><strong>End time</strong>: <code>4</code> s.</li><li><strong>Save every</strong>: <code>0.1</code> s.</li><li><strong>Processor cores</strong>: <code>4</code>.</li><li>Click <strong>Run</strong> in the toolbar (or press <strong>F6</strong>).</li></ol>
+<figure><a href="img/floating/07.webp" class="zoom"><img src="img/floating/07.webp" alt="Floating box, step 7: Run for four seconds" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-8">
+<h2><span class="step-number">8</span>Watch it bob</h2>
+<p>Open the <strong>Motion</strong> tab. The curve shows how far the middle of the box has moved from where it was drawn. It drops, comes back up, and swings a little less each time, about once every 0.8 seconds.</p>
+<ol class="marks"><li>Open the <strong>Motion</strong> tab.</li><li>The position of the middle of the box right now.</li></ol>
+<figure><a href="img/floating/08.webp" class="zoom"><img src="img/floating/08.webp" alt="Floating box, step 8: Watch it bob" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-9">
+<h2><span class="step-number">9</span>The water around the box</h2>
+<p>The <strong>Results</strong> step shows the water surface coloured by speed. At 0.4 s the box is at the bottom of its first plunge and has pushed a ring of water outwards. Step through the times to see the rings spread and return from the tank walls.</p>
+<ol class="marks"><li><strong>Saved time</strong>: <code>0.4</code>.</li><li><strong>Show</strong>: <em>Water surface</em>.</li></ol>
+<figure><a href="img/floating/09.webp" class="zoom"><img src="img/floating/09.webp" alt="Floating box, step 9: The water around the box" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-10">
+<h2><span class="step-number">10</span>Check it with Archimedes</h2>
+<p>A floating body pushes aside its own weight of water. The box weighs 5.4 kg, so it must push aside 5.4 litres. With a base of 0.3 × 0.3 m that takes a depth of 0.06 m: <strong>half the box is under water</strong> and its middle is at the water surface.</p>
+<p>The surface itself rises a little, because the box now takes up more room in the water than at the start: from 0.400 m to 0.4034 m. So the middle of the box should come to rest at <strong>0.4034 m</strong>.</p>
+<p>Open the <strong>Motion</strong> tab once more and read the position at the end of the run: the last small swings are around <strong>0.404 m</strong>, within a millimetre of the hand calculation.</p>
+<ol class="marks"><li>The middle of the box at the end of the run: z within a millimetre or two of 0.404 m.</li></ol>
+<figure><a href="img/floating/10.webp" class="zoom"><img src="img/floating/10.webp" alt="Floating box, step 10: Check it with Archimedes" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-11">
+<h2><span class="step-number">11</span>Try it yourself</h2>
+<ul><li>Set the density to <code>800</code>. The box should now float with four fifths of its height under water.</li><li>Choose <strong>Free to move</strong>: <em>All six directions</em>. The flat box stays upright. A tall, narrow box would topple over, which a stretching mesh cannot follow; see the limits in the sluice-gate tutorial.</li><li>Make waves under it: turn one tank wall into an opening in the Mesh step and make it a <em>Wave maker</em> in the Boundaries step.</li></ul>
+</section>
+  <nav class="pager"><a class="prev" href="gate.html"><span>Previous</span>Lifting sluice gate</a><a class="next" href="spillway.html"><span>Next</span>Spillway from your own geometry</a></nav>
+</main>
+</div>
+<div class="lightbox" hidden><img alt=""></div>
+<footer class="foot">
+  <p>EasyFOAM is free software (GPL-3.0-or-later). It is an independent project: it is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com and owner of the OPENFOAM® and OpenCFD® trade marks, and it is not affiliated with any other vendor of simulation software.</p>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>

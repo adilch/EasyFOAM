@@ -23,6 +23,12 @@ class CaseResults:
         foam.touch(exist_ok=True)
         self._reader = pv.POpenFOAMReader(str(foam))
         self._reader.case_type = "reconstructed"
+        times = self._reader.time_values
+        if times:
+            # The reader lists the quantities of the time it looks at, at first the earliest one.
+            # A quantity computed afterwards (y+, vorticity, ...) exists only at the latest time.
+            self._reader.set_active_time_value(times[-1])
+            self._reader.reader.UpdateInformation()
         self._reader.enable_all_patch_arrays()
         self._reader.enable_all_cell_arrays()
 

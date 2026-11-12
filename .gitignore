@@ -9,3 +9,6 @@ build/
 # simulation output created while testing
 /runs/
 /.scratch/
+
+# local preview configuration
+/.claude/

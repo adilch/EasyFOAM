@@ -50,6 +50,33 @@ Everything else a commercial front-end offers (heat transfer, free surface,
 rotating machinery, STEP import, …) is listed with its status in
 [docs/feature-map.md](docs/feature-map.md).
 
+## Tutorials
+
+Ten step-by-step tutorials, from installing to a spillway built from your own STL file, are in [docs/](docs/index.html) as a
+small website: open `docs/index.html` in a browser. Every click is numbered in a picture of the
+real program and every value is given.
+
+| | |
+|---|---|
+| Install and first look | Lid-driven cavity (built from an empty project) |
+| Laminar flow in a pipe | Air flow past a sphere |
+| Dam break | Flow over a weir |
+| Waves in a flume | Lifting sluice gate |
+| Floating box | Spillway from your own geometry (STL) |
+
+The site is made from the tutorial descriptions in `website/tutorials/`. The same description
+operates the real application to take the pictures and produces the page text, so the two cannot
+drift apart:
+
+```bash
+python -m website shots     # run every tutorial in the real program and take the pictures (needs OpenFOAM)
+python -m website build     # write the pages into docs/
+python -m website check     # are the pages up to date and all pictures there?
+```
+
+The site is plain files with relative links, so it can be hosted anywhere; on GitHub, choose
+*Settings > Pages > Deploy from a branch > main, /docs*.
+
 ## Requirements
 
 - Windows 10/11 with WSL 2, or Linux.
@@ -178,6 +205,7 @@ mycase/
 ```
 
 Design notes are in [docs/design.md](docs/design.md).
+The tutorials website is described under [Tutorials](#tutorials).
 
 ## Clean-room statement
 

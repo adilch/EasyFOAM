@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dam break — EasyFOAM tutorials</title>
+<meta name="description" content="Water and air with a free surface: a column of water collapses in a tank.">
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="25" cy="32" r="8"/><path d="M8 15h14c11 0 13 7 23 7h11M8 49h14c11 0 13-7 23-7h11M41 32h15"/></svg><span>EasyFOAM</span><span class="brand-sub">tutorials</span></a>
+  <nav>
+    <a href="../index.html">All tutorials</a>
+    <a href="../tutorials/getting-started.html">Install</a>
+  </nav>
+</header>
+<div class="layout">
+<aside class="contents">
+  <a class="back" href="../index.html">← All tutorials</a>
+  <p class="contents-title">Steps</p>
+  <ol>
+<li><a href="#step-1">Open the example</a></li>
+<li><a href="#step-2">Name the project</a></li>
+<li><a href="#step-3">A tank with an open top</a></li>
+<li><a href="#step-4">Water and air</a></li>
+<li><a href="#step-5">Where the water starts</a></li>
+<li><a href="#step-6">The open top</a></li>
+<li><a href="#step-7">Running in time</a></li>
+<li><a href="#step-8">The run</a></li>
+<li><a href="#step-9">The collapse</a></li>
+<li><a href="#step-10">The splash</a></li>
+<li><a href="#step-11">Try it yourself</a></li>
+  </ol>
+</aside>
+<main class="tutorial">
+  <p class="crumb">Tutorial 5 of 10</p>
+  <h1>Dam break</h1>
+  <p class="lead">Water and air with a free surface: a column of water collapses in a tank.</p>
+  <div class="chips"><span class="chip">about 20 min</span><span class="chip level-beginner">Beginner</span><span class="chip topic">Free surface</span></div>
+  <p>Rivers, spillways, tanks and waves all have a <strong>free surface</strong>: water below, air above, and a boundary between them that moves. EasyFOAM follows it by storing, for every cell, the share of the cell that is full of water (a number between 0 and 1 called <code>alpha.water</code>).</p>
+<p>The dam break is the simplest such case. A column of water stands in one corner of a tank; at time zero the invisible dam holding it disappears. The tank is a thin slice, one cell thick, so the run is quick.</p>
+  <div class="learn"><h3>What you will learn</h3><ul><li>choose the free-surface flow type</li><li>say where the water is at the start</li><li>leave the top of the tank open to the air</li><li>run in time, with a time step that adjusts itself, and step through the saved moments</li></ul><p class="run-time">Computer time: a few seconds for the mesh and about a minute for the run.</p></div>
+<section class="step" id="step-1">
+<h2><span class="step-number">1</span>Open the example</h2>
+<p>Start EasyFOAM. This case is one of the examples on the start page: it comes with every setting filled in, and this tutorial walks through each of them so that you understand the case and could build it yourself.</p>
+<ol class="marks"><li>Click <strong>Dam break</strong>.</li></ol>
+<figure><a href="img/dambreak/01.webp" class="zoom"><img src="img/dambreak/01.webp" alt="Dam break, step 1: Open the example" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-2">
+<h2><span class="step-number">2</span>Name the project</h2>
+<p>The project is an ordinary folder that EasyFOAM creates for you.</p>
+<ol class="marks"><li>Type a name, for example <code>dambreak</code>.</li><li>Click <strong>Create project</strong>.</li></ol>
+<figure><a href="img/dambreak/02.webp" class="zoom"><img src="img/dambreak/02.webp" alt="Dam break, step 2: Name the project" loading="lazy" width="650" height="248"></a></figure>
+</section>
+<section class="step" id="step-3">
+<h2><span class="step-number">3</span>A tank with an open top</h2>
+<p>There are no shapes, so go straight to the <strong>Mesh</strong> step. The tank is 0.584 m wide and high and one cell (14.6 mm) thick. Look at the names of the faces: three of them are <code>walls</code>, the top is <code>atmosphere</code>, and the front and back are <code>empty</code> because nothing happens through the thickness.</p>
+<ol class="marks"><li><strong>Corner (max)</strong>: <code>0.584</code>, <code>0.0146</code>, <code>0.584</code>.</li><li><strong>Cells</strong>: <code>46</code>, <code>1</code>, <code>46</code>.</li><li><strong>zMax</strong>, the top, is named <code>atmosphere</code> and has the type <code>patch</code>: an opening.</li><li><strong>yMin</strong> and <strong>yMax</strong> are <code>empty</code>.</li><li>Click <strong>Mesh</strong> in the toolbar (or press <strong>F5</strong>).</li></ol>
+<figure><a href="img/dambreak/03.webp" class="zoom"><img src="img/dambreak/03.webp" alt="Dam break, step 3: A tank with an open top" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-4">
+<h2><span class="step-number">4</span>Water and air</h2>
+<p>In the <strong>Physics</strong> step the flow type is what makes this a free-surface case. Once it is chosen, the fluid you pick is the water, and a new group of settings for the air and the water's starting position appears below.</p>
+<ol class="marks"><li><strong>Flow type</strong>: <em>Free surface: water and air</em>.</li><li><strong>Turbulence</strong>: <em>Laminar</em> is enough for this short, violent event.</li><li><strong>Fluid</strong>: <em>Water</em>.</li></ol>
+<figure><a href="img/dambreak/04.webp" class="zoom"><img src="img/dambreak/04.webp" alt="Dam break, step 4: Water and air" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-5">
+<h2><span class="step-number">5</span>Where the water starts</h2>
+<p>Scroll down to <strong>Water and air</strong>. Gravity points down the z axis. The table lists boxes that are full of water at the start; everything else is air. Here there is one box: the column, 0.146 m wide and 0.292 m high, in the corner.</p>
+<ol class="marks"><li><strong>Gravity</strong>: <code>0</code>, <code>0</code>, <code>-9.81</code>.</li><li>One box of water: from <code>0, 0, 0</code> to <code>0.1461, 0.0146, 0.292</code>.</li></ol>
+<figure><a href="img/dambreak/05.webp" class="zoom"><img src="img/dambreak/05.webp" alt="Dam break, step 5: Where the water starts" loading="lazy" width="1900" height="1125"></a></figure>
+<aside class="tip"><p><strong>Fill to a level</strong> adds a box that fills the whole tank up to a height: the quick way to make a pond or a reservoir.</p></aside>
+</section>
+<section class="step" id="step-6">
+<h2><span class="step-number">6</span>The open top</h2>
+<p>The top of the tank must let air in and out as the water moves, without holding the water in. That is what <em>Open to the atmosphere</em> does. EasyFOAM chose it by itself because of the name.</p>
+<ol class="marks"><li>Select <strong>atmosphere</strong>.</li><li><strong>Condition</strong>: <em>Open to the atmosphere</em>.</li></ol>
+<figure><a href="img/dambreak/06.webp" class="zoom"><img src="img/dambreak/06.webp" alt="Dam break, step 6: The open top" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-7">
+<h2><span class="step-number">7</span>Running in time</h2>
+<p>This is a <em>transient</em> run: it marches forward in small time steps. You choose how long to simulate and how often to save. The time step looks after itself: EasyFOAM shortens it when the water moves fast, so that nothing crosses more than a cell in one step (that is what the Courant number measures).</p>
+<ol class="marks"><li><strong>End time</strong>: <code>1</code> s.</li><li><strong>Time step</strong>: <code>0.001</code> s to start with.</li><li><strong>Keep the Courant number below</strong> <code>0.8</code>: leave it ticked.</li><li><strong>Save every</strong>: <code>0.05</code> s, which gives 20 saved moments.</li><li>Click <strong>Run</strong> in the toolbar (or press <strong>F6</strong>).</li></ol>
+<figure><a href="img/dambreak/07.webp" class="zoom"><img src="img/dambreak/07.webp" alt="Dam break, step 7: Running in time" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-8">
+<h2><span class="step-number">8</span>The run</h2>
+<p>This small case takes only a few seconds. While a run goes on, the line at the bottom of the window shows how far it is and how much of the tank is filled with water. That share should stay the same from start to end: a quick check that no water is lost.</p>
+<ol class="marks"><li>In a run in time the residuals do not fall to zero; they stay at a steady, low level.</li><li>The <strong>Run</strong> step shows that the run reached the end time.</li></ol>
+<figure><a href="img/dambreak/08.webp" class="zoom"><img src="img/dambreak/08.webp" alt="Dam break, step 8: The run" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-9">
+<h2><span class="step-number">9</span>The collapse</h2>
+<p>When the run ends, look at <code>alpha.water</code> on a slice: red is water, blue is air. At 0.2 s the column has slumped and a tongue of water is racing along the floor.</p>
+<ol class="marks"><li><strong>Saved time</strong>: <code>0.2</code>.</li><li><strong>Quantity</strong>: <code>alpha.water</code>.</li><li><strong>Show</strong>: <em>Slice through the flow</em>.</li><li><strong>Slice plane</strong>: <em>Normal to y</em>.</li></ol>
+<figure><a href="img/dambreak/09.webp" class="zoom"><img src="img/dambreak/09.webp" alt="Dam break, step 9: The collapse" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-10">
+<h2><span class="step-number">10</span>The splash</h2>
+<p>Step through the saved times. By 0.5 s the water has hit the far wall, climbed it and is falling back on itself.</p>
+<ol class="marks"><li><strong>Saved time</strong>: <code>0.5</code>. Use the arrow keys to step through the others.</li></ol>
+<figure><a href="img/dambreak/10.webp" class="zoom"><img src="img/dambreak/10.webp" alt="Dam break, step 10: The splash" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-11">
+<h2><span class="step-number">11</span>Try it yourself</h2>
+<ul><li>Use <code>92</code>, <code>1</code>, <code>92</code> cells: the water surface becomes sharper and the splash shows more detail.</li><li>In the Physics step choose <em>Free surface, sharper interface</em> as the flow type and compare.</li><li>Make the column taller, or add a second box of water on the other side.</li><li>Click <strong>Open in ParaView</strong> and press play to watch the collapse as a film.</li></ul>
+</section>
+  <nav class="pager"><a class="prev" href="sphere.html"><span>Previous</span>Air flow past a sphere</a><a class="next" href="weir.html"><span>Next</span>Flow over a weir</a></nav>
+</main>
+</div>
+<div class="lightbox" hidden><img alt=""></div>
+<footer class="foot">
+  <p>EasyFOAM is free software (GPL-3.0-or-later). It is an independent project: it is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com and owner of the OPENFOAM® and OpenCFD® trade marks, and it is not affiliated with any other vendor of simulation software.</p>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>

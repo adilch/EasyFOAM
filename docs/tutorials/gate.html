@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lifting sluice gate — EasyFOAM tutorials</title>
+<meta name="description" content="A shape that moves during the run: a gate lifts and the water behind it runs out underneath.">
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="25" cy="32" r="8"/><path d="M8 15h14c11 0 13 7 23 7h11M8 49h14c11 0 13-7 23-7h11M41 32h15"/></svg><span>EasyFOAM</span><span class="brand-sub">tutorials</span></a>
+  <nav>
+    <a href="../index.html">All tutorials</a>
+    <a href="../tutorials/getting-started.html">Install</a>
+  </nav>
+</header>
+<div class="layout">
+<aside class="contents">
+  <a class="back" href="../index.html">← All tutorials</a>
+  <p class="contents-title">Steps</p>
+  <ol>
+<li><a href="#step-1">Open the example</a></li>
+<li><a href="#step-2">Name the project</a></li>
+<li><a href="#step-3">The gate and its motion</a></li>
+<li><a href="#step-4">The channel</a></li>
+<li><a href="#step-5">Water behind the gate</a></li>
+<li><a href="#step-6">Run for two seconds</a></li>
+<li><a href="#step-7">Follow the gate</a></li>
+<li><a href="#step-8">The water runs out</a></li>
+<li><a href="#step-9">What a moving mesh can and cannot do</a></li>
+<li><a href="#step-10">Try it yourself</a></li>
+  </ol>
+</aside>
+<main class="tutorial">
+  <p class="crumb">Tutorial 8 of 10</p>
+  <h1>Lifting sluice gate</h1>
+  <p class="lead">A shape that moves during the run: a gate lifts and the water behind it runs out underneath.</p>
+  <div class="chips"><span class="chip">about 20 min</span><span class="chip level-intermediate">Intermediate</span><span class="chip topic">Free surface</span><span class="chip topic">Hydraulic structures</span><span class="chip topic">Moving shapes</span></div>
+  <p>Gates and valves change the flow by moving. In EasyFOAM any solid shape can be given a motion: it can move to a new position over a set time, swing back and forth, or float. The mesh stretches to follow the shape while the run goes on.</p>
+<p>Here a sluice gate holds back water 0.5 m deep, with a 0.1 m gap under it. A tenth of a second into the run the gate starts to lift, and half a second later the gap has doubled.</p>
+  <div class="learn"><h3>What you will learn</h3><ul><li>give a shape a motion: how far, from when, for how long</li><li>follow the motion while the run goes on</li><li>know what a stretching mesh can and cannot do</li></ul><p class="run-time">Computer time: a few seconds for the mesh and about a minute for the run, on two cores.</p></div>
+<section class="step" id="step-1">
+<h2><span class="step-number">1</span>Open the example</h2>
+<p>Start EasyFOAM. This case is one of the examples on the start page: it comes with every setting filled in, and this tutorial walks through each of them so that you understand the case and could build it yourself.</p>
+<ol class="marks"><li>Click <strong>Lifting sluice gate</strong>.</li></ol>
+<figure><a href="img/gate/01.webp" class="zoom"><img src="img/gate/01.webp" alt="Lifting sluice gate, step 1: Open the example" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-2">
+<h2><span class="step-number">2</span>Name the project</h2>
+<p>The project is an ordinary folder that EasyFOAM creates for you.</p>
+<ol class="marks"><li>Type a name, for example <code>gate</code>.</li><li>Click <strong>Create project</strong>.</li></ol>
+<figure><a href="img/gate/02.webp" class="zoom"><img src="img/gate/02.webp" alt="Lifting sluice gate, step 2: Name the project" loading="lazy" width="650" height="248"></a></figure>
+</section>
+<section class="step" id="step-3">
+<h2><span class="step-number">3</span>The gate and its motion</h2>
+<p>The gate is a box 0.1 m thick whose lower edge is 0.1 m above the bed. At the bottom of its settings is <strong>Motion</strong>. <em>Moves to a new position</em> asks for three things: how far the shape ends up from where it is drawn, when it starts, and how long the move takes. It moves at a steady speed in between.</p>
+<ol class="marks"><li>The shape <strong>gate</strong>. The list notes that it moves.</li><li>The lower edge of the gate is at z = <code>0.1</code> m.</li><li><strong>Motion</strong>: <em>Moves to a new position</em>.</li><li><strong>Moves by</strong>: <code>0</code>, <code>0</code>, <code>0.1</code>, so 0.1 m straight up.</li><li><strong>Starts at</strong> <code>0.1</code> s and <strong>Takes</strong> <code>0.5</code> s.</li></ol>
+<figure><a href="img/gate/03.webp" class="zoom"><img src="img/gate/03.webp" alt="Lifting sluice gate, step 3: The gate and its motion" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-4">
+<h2><span class="step-number">4</span>The channel</h2>
+<p>The channel is 3 m long and 1 m high, modelled as a slice two cells thick. Both ends are closed walls, the top is open to the air.</p>
+<ol class="marks"><li><strong>Corner (max)</strong>: <code>3</code>, <code>0.1</code>, <code>1</code>.</li><li><strong>Cells</strong>: <code>60</code>, <code>2</code>, <code>20</code>, which makes 5 cm cubes.</li><li><code>bed</code> is a wall and <code>atmosphere</code> an opening.</li><li>Click <strong>Mesh</strong> in the toolbar (or press <strong>F5</strong>).</li></ol>
+<figure><a href="img/gate/04.webp" class="zoom"><img src="img/gate/04.webp" alt="Lifting sluice gate, step 4: The channel" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-5">
+<h2><span class="step-number">5</span>Water behind the gate</h2>
+<p>The flow type is <em>Free surface: water and air</em>; a shape can only move in a run in time, and all free-surface runs are. Scroll down to <strong>Water and air</strong>: the water starts on the upstream side only, one box from the end wall to the face of the gate, 0.5 m deep.</p>
+<ol class="marks"><li>One box of water: from <code>0, 0, 0</code> to <code>1.5, 0.1, 0.5</code>.</li></ol>
+<figure><a href="img/gate/05.webp" class="zoom"><img src="img/gate/05.webp" alt="Lifting sluice gate, step 5: Water behind the gate" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-6">
+<h2><span class="step-number">6</span>Run for two seconds</h2>
+<p>Nothing is special about the run settings: a moving shape needs no extra choices here.</p>
+<ol class="marks"><li><strong>End time</strong>: <code>2</code> s.</li><li><strong>Save every</strong>: <code>0.1</code> s.</li><li><strong>Processor cores</strong>: <code>2</code>.</li><li>Click <strong>Run</strong> in the toolbar (or press <strong>F6</strong>).</li></ol>
+<figure><a href="img/gate/06.webp" class="zoom"><img src="img/gate/06.webp" alt="Lifting sluice gate, step 6: Run for two seconds" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-7">
+<h2><span class="step-number">7</span>Follow the gate</h2>
+<p>The <strong>Motion</strong> tab plots how far each moving shape has travelled. The gate waits for a tenth of a second, rises steadily, and stops 0.1 m higher.</p>
+<ol class="marks"><li>Open the <strong>Motion</strong> tab.</li><li>Where the gate is now.</li></ol>
+<figure><a href="img/gate/07.webp" class="zoom"><img src="img/gate/07.webp" alt="Lifting sluice gate, step 7: Follow the gate" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-8">
+<h2><span class="step-number">8</span>The water runs out</h2>
+<p>In the <strong>Results</strong> step, look at the moment just after the gate has stopped, at 0.7 s. The water is shooting through the gap, twice as high now as at the start, and running down the channel. Step through the saved times and you can see the gate itself rise in the 3D view.</p>
+<ol class="marks"><li><strong>Saved time</strong>: <code>0.7</code>.</li><li><strong>Show</strong>: <em>Water surface</em>, coloured by <code>U</code>, the speed.</li></ol>
+<figure><a href="img/gate/08.webp" class="zoom"><img src="img/gate/08.webp" alt="Lifting sluice gate, step 8: The water runs out" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-9">
+<h2><span class="step-number">9</span>What a moving mesh can and cannot do</h2>
+<p>The mesh is not rebuilt when a shape moves. The cells around the shape are stretched and squeezed to follow it, and their number stays the same. That is quick and robust, but it sets limits:</p>
+<ul><li>Keep a movement well below the gap between the shape and the nearest wall.</li><li>A gate can open further or close part of the way. It <strong>cannot shut completely</strong>, because the cells under it would be squeezed to nothing. Leave a small gap.</li><li>Moving shapes cannot be combined with mesh refinement at the water surface.</li></ul>
+</section>
+<section class="step" id="step-10">
+<h2><span class="step-number">10</span>Try it yourself</h2>
+<ul><li>Lift the gate more slowly (<strong>Takes</strong> <code>1.5</code> s) and compare the surge downstream.</li><li>Lower it instead: <strong>Moves by</strong> <code>0</code>, <code>0</code>, <code>-0.05</code> halves the gap.</li><li>Choose <em>Swings back and forth</em> with an amplitude of <code>0.05</code>, <code>0</code>, <code>0</code> and a period of <code>1</code> s to turn the gate into a wave paddle.</li></ul>
+</section>
+  <nav class="pager"><a class="prev" href="waves.html"><span>Previous</span>Waves in a flume</a><a class="next" href="floating.html"><span>Next</span>Floating box</a></nav>
+</main>
+</div>
+<div class="lightbox" hidden><img alt=""></div>
+<footer class="foot">
+  <p>EasyFOAM is free software (GPL-3.0-or-later). It is an independent project: it is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com and owner of the OPENFOAM® and OpenCFD® trade marks, and it is not affiliated with any other vendor of simulation software.</p>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>

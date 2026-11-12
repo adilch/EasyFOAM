@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Laminar flow in a pipe — EasyFOAM tutorials</title>
+<meta name="description" content="Flow inside a shape: a straight pipe whose result you can check by hand.">
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="25" cy="32" r="8"/><path d="M8 15h14c11 0 13 7 23 7h11M8 49h14c11 0 13-7 23-7h11M41 32h15"/></svg><span>EasyFOAM</span><span class="brand-sub">tutorials</span></a>
+  <nav>
+    <a href="../index.html">All tutorials</a>
+    <a href="../tutorials/getting-started.html">Install</a>
+  </nav>
+</header>
+<div class="layout">
+<aside class="contents">
+  <a class="back" href="../index.html">← All tutorials</a>
+  <p class="contents-title">Steps</p>
+  <ol>
+<li><a href="#step-1">Open the example</a></li>
+<li><a href="#step-2">Name the project</a></li>
+<li><a href="#step-3">The pipe is a cylinder</a></li>
+<li><a href="#step-4">The base mesh and where the fluid is</a></li>
+<li><a href="#step-5">The mesh of the inside</a></li>
+<li><a href="#step-6">A thick fluid, flowing slowly</a></li>
+<li><a href="#step-7">The inlet</a></li>
+<li><a href="#step-8">The outlet and the wall</a></li>
+<li><a href="#step-9">Run until it has converged</a></li>
+<li><a href="#step-10">Converged</a></li>
+<li><a href="#step-11">The speed along the pipe</a></li>
+<li><a href="#step-12">The pressure drop</a></li>
+<li><a href="#step-13">Try it yourself</a></li>
+  </ol>
+</aside>
+<main class="tutorial">
+  <p class="crumb">Tutorial 3 of 10</p>
+  <h1>Laminar flow in a pipe</h1>
+  <p class="lead">Flow inside a shape: a straight pipe whose result you can check by hand.</p>
+  <div class="chips"><span class="chip">about 20 min</span><span class="chip level-beginner">Beginner</span><span class="chip topic">Internal flow</span><span class="chip topic">Checked against theory</span></div>
+  <p>Slow flow through a straight pipe has an exact solution, known since the 1840s: far enough from the entrance, the speed across the pipe is a parabola whose peak is <strong>twice</strong> the average speed. That makes it a good second case: you learn how to simulate the flow <em>inside</em> a shape, and you can tell whether the answer is right.</p>
+<p>The pipe is 0.2 m in diameter and 2 m long. The fluid enters at 1 m/s and has a viscosity of 0.004 m²/s, so the Reynolds number is 1 × 0.2 / 0.004 = 50.</p>
+  <div class="learn"><h3>What you will learn</h3><ul><li>let the base mesh cut a shape open to make an inlet and an outlet</li><li>tell EasyFOAM that the fluid is inside the shape</li><li>set an inlet velocity and an outlet pressure</li><li>stop a steady run automatically when it has converged, and compare with theory</li></ul><p class="run-time">Computer time: about half a minute for the mesh and a minute for the run, on four cores.</p></div>
+<section class="step" id="step-1">
+<h2><span class="step-number">1</span>Open the example</h2>
+<p>Start EasyFOAM. This case is one of the examples on the start page: it comes with every setting filled in, and this tutorial walks through each of them so that you understand the case and could build it yourself.</p>
+<ol class="marks"><li>Click <strong>Laminar flow in a pipe</strong>.</li></ol>
+<figure><a href="img/pipe/01.webp" class="zoom"><img src="img/pipe/01.webp" alt="Laminar flow in a pipe, step 1: Open the example" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-2">
+<h2><span class="step-number">2</span>Name the project</h2>
+<p>The project is an ordinary folder that EasyFOAM creates for you.</p>
+<ol class="marks"><li>Type a name, for example <code>pipe</code>.</li><li>Click <strong>Create project</strong>.</li></ol>
+<figure><a href="img/pipe/02.webp" class="zoom"><img src="img/pipe/02.webp" alt="Laminar flow in a pipe, step 2: Name the project" loading="lazy" width="650" height="248"></a></figure>
+</section>
+<section class="step" id="step-3">
+<h2><span class="step-number">3</span>The pipe is a cylinder</h2>
+<p>The only shape is a cylinder called <code>tube</code>. Notice that it is <strong>longer than it needs to be</strong>: it runs from x = −0.5 m to x = 2.5 m, but the mesh will only cover 0 to 2 m. The two ends of the mesh cut the cylinder open, and those cuts become the inlet and the outlet.</p>
+<ol class="marks"><li>The shape <strong>tube</strong> is selected and shown in the 3D view.</li><li><strong>Axis start</strong> and <strong>Axis end</strong>: the two ends of the cylinder's centre line.</li><li><strong>Radius</strong>: <code>0.1</code> m.</li><li><strong>Surface refinement</strong> <code>1</code>: cells at the pipe wall are half the size of the base cells.</li></ol>
+<figure><a href="img/pipe/03.webp" class="zoom"><img src="img/pipe/03.webp" alt="Laminar flow in a pipe, step 3: The pipe is a cylinder" loading="lazy" width="1900" height="1125"></a></figure>
+<aside class="tip"><p>To use your own pipework instead, click <strong>Import</strong> and choose an STL or STEP file.</p></aside>
+</section>
+<section class="step" id="step-4">
+<h2><span class="step-number">4</span>The base mesh and where the fluid is</h2>
+<p>The base mesh is a box of cubes a little wider than the pipe and exactly as long as the part we want to simulate. One setting matters most here: by default EasyFOAM keeps the mesh <em>around</em> the shapes. For a pipe we want the opposite.</p>
+<ol class="marks"><li>The box runs from x = <code>0</code> to <code>2</code> and is <code>0.25</code> m wide and high.</li><li><strong>Cells</strong>: <code>80</code>, <code>10</code>, <code>10</code>, which makes cubes of 25 mm.</li><li><strong>The fluid is</strong>: <em>inside tube</em>.</li><li>Click <strong>Mesh</strong> in the toolbar (or press <strong>F5</strong>).</li></ol>
+<figure><a href="img/pipe/04.webp" class="zoom"><img src="img/pipe/04.webp" alt="Laminar flow in a pipe, step 4: The base mesh and where the fluid is" loading="lazy" width="1900" height="1125"></a></figure>
+<aside class="tip"><p><strong>Size the base mesh automatically</strong> makes a snug box like this one around any shape you import.</p></aside>
+</section>
+<section class="step" id="step-5">
+<h2><span class="step-number">5</span>The mesh of the inside</h2>
+<p>After about half a minute the mesh appears: only the inside of the pipe is left, with finer cells along the wall. The boundaries are named after where they came from: <code>inlet</code> and <code>outlet</code> are the two end faces of the base mesh, <code>tube</code> is the pipe wall.</p>
+<ol class="marks"><li>The <strong>Mesh</strong> step shows the number of cells, about 24,000.</li><li>The boundaries are listed with their colours in the corner of the view.</li></ol>
+<figure><a href="img/pipe/05.webp" class="zoom"><img src="img/pipe/05.webp" alt="Laminar flow in a pipe, step 5: The mesh of the inside" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-6">
+<h2><span class="step-number">6</span>A thick fluid, flowing slowly</h2>
+<p>The flow is steady and laminar. The fluid is an invented one, thick enough to keep the Reynolds number at 50.</p>
+<ol class="marks"><li><strong>Turbulence</strong>: <em>Laminar</em>.</li><li><strong>Fluid</strong>: <em>Custom</em>.</li><li><strong>Kinematic viscosity</strong>: <code>0.004</code>.</li><li><strong>Initial velocity</strong>: <code>1</code>, <code>0</code>, <code>0</code>. Starting close to the answer saves iterations.</li></ol>
+<figure><a href="img/pipe/06.webp" class="zoom"><img src="img/pipe/06.webp" alt="Laminar flow in a pipe, step 6: A thick fluid, flowing slowly" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-7">
+<h2><span class="step-number">7</span>The inlet</h2>
+<p>At the inlet the fluid enters with the same speed everywhere across the pipe.</p>
+<ol class="marks"><li>Select <strong>inlet</strong>.</li><li><strong>Condition</strong>: <em>Velocity inlet</em>.</li><li><strong>Velocity</strong>: <code>1</code>, <code>0</code>, <code>0</code>.</li></ol>
+<figure><a href="img/pipe/07.webp" class="zoom"><img src="img/pipe/07.webp" alt="Laminar flow in a pipe, step 7: The inlet" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-8">
+<h2><span class="step-number">8</span>The outlet and the wall</h2>
+<p>At the outlet the pressure is fixed and the fluid leaves as it likes. Pressures in EasyFOAM are relative, so zero is the natural choice. The pipe wall <code>tube</code> is an ordinary wall: the fluid sticks to it.</p>
+<ol class="marks"><li>Select <strong>outlet</strong>.</li><li><strong>Condition</strong>: <em>Pressure outlet</em>.</li><li><strong>Pressure</strong>: <code>0</code>.</li></ol>
+<figure><a href="img/pipe/08.webp" class="zoom"><img src="img/pipe/08.webp" alt="Laminar flow in a pipe, step 8: The outlet and the wall" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-9">
+<h2><span class="step-number">9</span>Run until it has converged</h2>
+<p>Instead of guessing how many iterations are needed, give a generous limit and a target: the run stops by itself once every residual is below it.</p>
+<ol class="marks"><li><strong>Iterations</strong>: <code>500</code>, an upper limit.</li><li><strong>Processor cores</strong>: <code>4</code>. Use fewer if your computer has fewer.</li><li><strong>Stop below residual</strong>: <code>1e-5</code>.</li><li>Click <strong>Run</strong> in the toolbar (or press <strong>F6</strong>).</li></ol>
+<figure><a href="img/pipe/09.webp" class="zoom"><img src="img/pipe/09.webp" alt="Laminar flow in a pipe, step 9: Run until it has converged" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-10">
+<h2><span class="step-number">10</span>Converged</h2>
+<p>The residuals fall steadily and the run ends well before the limit, as soon as the last of them passes the target.</p>
+<ol class="marks"><li>All four lines fall below 0.00001.</li><li>The step shows at which iteration the run finished.</li></ol>
+<figure><a href="img/pipe/10.webp" class="zoom"><img src="img/pipe/10.webp" alt="Laminar flow in a pipe, step 10: Converged" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-11">
+<h2><span class="step-number">11</span>The speed along the pipe</h2>
+<p>On a slice along the pipe you can watch the profile develop: flat at the inlet, then the fluid near the wall slows down and the middle speeds up, until the profile no longer changes.</p>
+<p>Now the check. Theory says the middle ends up at <strong>twice</strong> the average speed, 2.0 m/s. The top of the colour scale reads about <strong>1.93 m/s</strong>: within 4 % on this coarse mesh.</p>
+<ol class="marks"><li><strong>Quantity</strong>: <code>U</code>.</li><li><strong>Slice plane</strong>: <em>Normal to y</em>.</li><li>Click <strong>+Y</strong> to look at the slice from the side.</li></ol>
+<figure><a href="img/pipe/11.webp" class="zoom"><img src="img/pipe/11.webp" alt="Laminar flow in a pipe, step 11: The speed along the pipe" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-12">
+<h2><span class="step-number">12</span>The pressure drop</h2>
+<p>Switch the quantity to the pressure. It falls evenly along the developed part of the pipe. Theory gives 32 × viscosity × speed / diameter² = 32 × 0.004 × 1 / 0.04 = <strong>3.2</strong> per metre; the simulation gives about 3.15.</p>
+<p>EasyFOAM shows the pressure divided by the density (in m²/s²). Multiply by the density, here 1000 kg/m³, to get pascals: 3200 Pa per metre.</p>
+<ol class="marks"><li><strong>Quantity</strong>: <code>p</code>.</li></ol>
+<figure><a href="img/pipe/12.webp" class="zoom"><img src="img/pipe/12.webp" alt="Laminar flow in a pipe, step 12: The pressure drop" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-13">
+<h2><span class="step-number">13</span>Try it yourself</h2>
+<ul><li>Raise <strong>Surface refinement</strong> of the tube to <code>2</code> and mesh again: the peak speed moves closer to 2.0.</li><li>Double the inlet speed. The pressure drop doubles too, as it must in laminar flow.</li><li>Set the viscosity to <code>1e-6</code> (water) and choose a turbulence model: the flat profile of turbulent pipe flow appears instead of the parabola.</li></ul>
+</section>
+  <nav class="pager"><a class="prev" href="cavity.html"><span>Previous</span>Lid-driven cavity</a><a class="next" href="sphere.html"><span>Next</span>Air flow past a sphere</a></nav>
+</main>
+</div>
+<div class="lightbox" hidden><img alt=""></div>
+<footer class="foot">
+  <p>EasyFOAM is free software (GPL-3.0-or-later). It is an independent project: it is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com and owner of the OPENFOAM® and OpenCFD® trade marks, and it is not affiliated with any other vendor of simulation software.</p>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>

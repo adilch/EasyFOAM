@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install and first look — EasyFOAM tutorials</title>
+<meta name="description" content="Set up OpenFOAM and EasyFOAM on your computer, start the program and see how it is laid out.">
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="25" cy="32" r="8"/><path d="M8 15h14c11 0 13 7 23 7h11M8 49h14c11 0 13-7 23-7h11M41 32h15"/></svg><span>EasyFOAM</span><span class="brand-sub">tutorials</span></a>
+  <nav>
+    <a href="../index.html">All tutorials</a>
+    <a href="../tutorials/getting-started.html">Install</a>
+  </nav>
+</header>
+<div class="layout">
+<aside class="contents">
+  <a class="back" href="../index.html">← All tutorials</a>
+  <p class="contents-title">Steps</p>
+  <ol>
+<li><a href="#step-1">What you need</a></li>
+<li><a href="#step-2">Install OpenFOAM</a></li>
+<li><a href="#step-3">Install EasyFOAM</a></li>
+<li><a href="#step-4">Start it</a></li>
+<li><a href="#step-5">The window</a></li>
+<li><a href="#step-6">What is in a project folder</a></li>
+<li><a href="#step-7">Where to go next</a></li>
+  </ol>
+</aside>
+<main class="tutorial">
+  <p class="crumb">Tutorial 1 of 10</p>
+  <h1>Install and first look</h1>
+  <p class="lead">Set up OpenFOAM and EasyFOAM on your computer, start the program and see how it is laid out.</p>
+  <div class="chips"><span class="chip">about 20 min</span><span class="chip level-beginner">Beginner</span><span class="chip topic">Basics</span></div>
+  <p>EasyFOAM is a window for <a href="https://www.openfoam.com">OpenFOAM</a>, the free flow solver used across industry and research. EasyFOAM does not contain OpenFOAM: it drives the ordinary OpenFOAM that you install yourself, and it leaves an ordinary OpenFOAM case in your project folder. Nothing is locked in, and there are no limits on the size of a case or the number of processor cores.</p>
+<p>So there are two things to install: OpenFOAM, and EasyFOAM itself.</p>
+  <div class="learn"><h3>What you will learn</h3><ul><li>install OpenFOAM on Windows (inside WSL) or on Linux</li><li>install and start EasyFOAM</li><li>check that EasyFOAM has found OpenFOAM</li><li>find your way round the window</li></ul><p class="run-time">Computer time: none; most of the time goes into downloading OpenFOAM.</p></div>
+<section class="step" id="step-1">
+<h2><span class="step-number">1</span>What you need</h2>
+<ul><li>Windows 10 or 11, or Linux.</li><li>About 3 GB of free disk space for OpenFOAM.</li><li><a href="https://www.python.org/downloads/">Python</a> 3.11 or newer.</li><li>Optional: <a href="https://www.paraview.org/download/">ParaView</a> for films, streamlines and other detailed pictures.</li></ul>
+</section>
+<section class="step" id="step-2">
+<h2><span class="step-number">2</span>Install OpenFOAM</h2>
+<p>On <strong>Windows</strong>, OpenFOAM runs inside WSL, the Linux system that Windows provides. Open PowerShell and install Ubuntu:</p>
+<pre><code>wsl --install -d Ubuntu-24.04</code></pre>
+<p>Restart the computer if Windows asks you to, start <strong>Ubuntu</strong> from the Start menu, and choose a user name and a password when it asks. Then, in the Ubuntu window (or in a terminal on a Linux computer), install OpenFOAM:</p>
+<pre><code>curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+sudo apt-get install openfoam2506-default</code></pre>
+<p>That is all: you do not need to start OpenFOAM yourself. EasyFOAM finds it.</p>
+<aside class="tip"><p>EasyFOAM is tested with OpenFOAM v2506 from openfoam.com. Other recent versions from the same source should work too.</p></aside>
+</section>
+<section class="step" id="step-3">
+<h2><span class="step-number">3</span>Install EasyFOAM</h2>
+<p>Download the EasyFOAM source and open a terminal (PowerShell on Windows) in its folder. Create a private Python environment for it and install EasyFOAM into that:</p>
+<pre><code>python -m venv .venv
+.venv\Scripts\python -m pip install -e ".[gui]"</code></pre>
+<p>On Linux the second line starts with <code>.venv/bin/python</code>. To import STEP and IGES files from CAD programs as well, install <code>".[gui,cad]"</code> instead.</p>
+</section>
+<section class="step" id="step-4">
+<h2><span class="step-number">4</span>Start it</h2>
+<p>On Windows, double-click <strong>EasyFOAM.cmd</strong> in the EasyFOAM folder. On any system you can also start it from the terminal:</p>
+<pre><code>.venv\Scripts\python -m easyfoam.gui.app</code></pre>
+<p>The start page appears. Look at the bottom right corner first.</p>
+<ol class="marks"><li>EasyFOAM has found OpenFOAM. If this says <em>not found</em>, check the installation above, then use <strong>OpenFOAM › Search again</strong>.</li><li>Ready-made examples. Each has a tutorial on this site.</li><li><strong>New project</strong> starts from nothing.</li><li>Projects you have worked on are listed here for quick access.</li></ol>
+<figure><a href="img/getting-started/04.webp" class="zoom"><img src="img/getting-started/04.webp" alt="Install and first look, step 4: Start it" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-5">
+<h2><span class="step-number">5</span>The window</h2>
+<p>Open any example to see the working window; the picture shows <em>Air flow past a sphere</em>. Every case is set up in the same six steps, from top to bottom.</p>
+<ol class="marks"><li><strong>The steps.</strong> Geometry, Mesh, Physics, Boundaries, Run, Results. A green tick means a step is ready; an orange mark means something needs your attention.</li><li><strong>The settings</strong> of the step you are on. Hold the mouse over any input for an explanation.</li><li><strong>The 3D view.</strong> Left mouse button turns, right button or wheel zooms, middle button moves. The buttons above it set standard views.</li><li><strong>Plots and log.</strong> Live plots of the run, and the full output of every tool.</li><li><strong>The toolbar.</strong> <em>Mesh</em> (F5) makes the mesh, <em>Run</em> (F6) starts the simulation, <em>Stop</em> ends it and saves first.</li><li><strong>Back</strong> and <strong>Next</strong> walk through the steps.</li></ol>
+<figure><a href="img/getting-started/05.webp" class="zoom"><img src="img/getting-started/05.webp" alt="Install and first look, step 5: The window" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-6">
+<h2><span class="step-number">6</span>What is in a project folder</h2>
+<p>A project is a folder. EasyFOAM writes one small file of its own into it, and otherwise a normal OpenFOAM case that any OpenFOAM user can read:</p>
+<pre><code>my-case/
+  easyfoam.json     everything you chose, in one file
+  system/ constant/ 0/    the OpenFOAM case, written from your choices
+  log.blockMesh ...       the output of every tool that ran
+  .easyfoam/mesh.sh       the exact commands that were run</code></pre>
+<p>Projects are saved automatically as you work. To move one to another computer, copy the folder.</p>
+</section>
+<section class="step" id="step-7">
+<h2><span class="step-number">7</span>Where to go next</h2>
+<p>Go on to the <a href="cavity.html">lid-driven cavity</a>. It takes a quarter of an hour, needs no geometry and teaches the six steps on a case that runs in seconds. The tutorials after it each add one new idea: flow inside a shape, flow around a body, a free water surface, hydraulic structures, waves, and shapes that move.</p>
+</section>
+  <nav class="pager"><span></span><a class="next" href="cavity.html"><span>Next</span>Lid-driven cavity</a></nav>
+</main>
+</div>
+<div class="lightbox" hidden><img alt=""></div>
+<footer class="foot">
+  <p>EasyFOAM is free software (GPL-3.0-or-later). It is an independent project: it is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com and owner of the OPENFOAM® and OpenCFD® trade marks, and it is not affiliated with any other vendor of simulation software.</p>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>

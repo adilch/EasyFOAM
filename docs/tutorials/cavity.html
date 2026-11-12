@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lid-driven cavity — EasyFOAM tutorials</title>
+<meta name="description" content="Your first case, built from an empty project: a closed box of fluid stirred by its sliding lid.">
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="25" cy="32" r="8"/><path d="M8 15h14c11 0 13 7 23 7h11M8 49h14c11 0 13-7 23-7h11M41 32h15"/></svg><span>EasyFOAM</span><span class="brand-sub">tutorials</span></a>
+  <nav>
+    <a href="../index.html">All tutorials</a>
+    <a href="../tutorials/getting-started.html">Install</a>
+  </nav>
+</header>
+<div class="layout">
+<aside class="contents">
+  <a class="back" href="../index.html">← All tutorials</a>
+  <p class="contents-title">Steps</p>
+  <ol>
+<li><a href="#step-1">Start a new project</a></li>
+<li><a href="#step-2">Name it</a></li>
+<li><a href="#step-3">Look around the window</a></li>
+<li><a href="#step-4">Size the box</a></li>
+<li><a href="#step-5">Name the six faces</a></li>
+<li><a href="#step-6">Generate the mesh</a></li>
+<li><a href="#step-7">Check the mesh</a></li>
+<li><a href="#step-8">Choose the physics</a></li>
+<li><a href="#step-9">Make the lid move</a></li>
+<li><a href="#step-10">Set up the run</a></li>
+<li><a href="#step-11">Watch it converge</a></li>
+<li><a href="#step-12">Look at the flow</a></li>
+<li><a href="#step-13">Try it yourself</a></li>
+  </ol>
+</aside>
+<main class="tutorial">
+  <p class="crumb">Tutorial 2 of 10</p>
+  <h1>Lid-driven cavity</h1>
+  <p class="lead">Your first case, built from an empty project: a closed box of fluid stirred by its sliding lid.</p>
+  <div class="chips"><span class="chip">about 15 min</span><span class="chip level-beginner">Beginner</span><span class="chip topic">Basics</span><span class="chip topic">Internal flow</span></div>
+  <p>The lid-driven cavity is the classic first exercise of flow simulation. A square box is full of fluid; its top wall (the lid) slides sideways and drags the fluid round in one large eddy. There is no geometry file to import and the run takes seconds, so it is the quickest way to learn the six steps of EasyFOAM: <strong>Geometry, Mesh, Physics, Boundaries, Run, Results</strong>.</p>
+<p>The box is 1 m wide and 1 m high, the lid moves at 1 m/s and the fluid has a viscosity of 0.01 m²/s. That gives a Reynolds number of 1 × 1 / 0.01 = 100: slow, smooth (laminar) flow.</p>
+  <div class="learn"><h3>What you will learn</h3><ul><li>create a project and find your way round the window</li><li>make a mesh from a plain box and name its faces</li><li>choose a fluid and a flow model</li><li>give a wall a motion, run, and look at the speed on a slice</li></ul><p class="run-time">Computer time: a few seconds for the mesh and about ten seconds for the run.</p></div>
+<section class="step" id="step-1">
+<h2><span class="step-number">1</span>Start a new project</h2>
+<p>Start EasyFOAM. The start page offers ready-made examples, but this time we build the case ourselves.</p>
+<ol class="marks"><li>Click <strong>New project</strong>.</li></ol>
+<figure><a href="img/cavity/01.webp" class="zoom"><img src="img/cavity/01.webp" alt="Lid-driven cavity, step 1: Start a new project" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-2">
+<h2><span class="step-number">2</span>Name it</h2>
+<p>A project is an ordinary folder. EasyFOAM creates it for you and keeps everything about the case inside.</p>
+<ol class="marks"><li>Type the name <code>cavity</code>.</li><li>Choose the folder to create it in, or keep the suggestion.</li><li>Leave <strong>Start from</strong> on <em>Empty project</em>.</li><li>Click <strong>Create project</strong>.</li></ol>
+<figure><a href="img/cavity/02.webp" class="zoom"><img src="img/cavity/02.webp" alt="Lid-driven cavity, step 2: Name it" loading="lazy" width="650" height="248"></a></figure>
+</section>
+<section class="step" id="step-3">
+<h2><span class="step-number">3</span>Look around the window</h2>
+<p>The project opens on the first step. Take a moment to see how the window is laid out; it stays the same for every case.</p>
+<p>This case has no shapes: the fluid simply fills a box. So there is nothing to do in <strong>Geometry</strong>.</p>
+<ol class="marks"><li>The six steps, from top to bottom. A mark on the right shows whether a step is ready.</li><li>The settings of the step you are on.</li><li>The 3D view. Drag with the left mouse button to turn, with the wheel to zoom.</li><li>Plots and the log of the running tools.</li><li>Click <strong>Next: Mesh</strong>.</li></ol>
+<figure><a href="img/cavity/03.webp" class="zoom"><img src="img/cavity/03.webp" alt="Lid-driven cavity, step 3: Look around the window" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-4">
+<h2><span class="step-number">4</span>Size the box</h2>
+<p>Every mesh starts from a box of brick-shaped cells, the <em>base mesh</em>. Here the base mesh <em>is</em> the whole mesh. Make it 1 m × 1 m, and only 0.1 m thick with a single cell through the thickness: that turns the case into a two-dimensional one.</p>
+<ol class="marks"><li><strong>Corner (min)</strong>: <code>0</code>, <code>0</code>, <code>0</code>.</li><li><strong>Corner (max)</strong>: <code>1</code>, <code>1</code>, <code>0.1</code>.</li><li><strong>Cells</strong>: <code>40</code>, <code>40</code>, <code>1</code>. The line below tells you the cell size and the total: 1,600 cells.</li><li>Click <strong>Fit</strong> to bring the new box into view.</li></ol>
+<figure><a href="img/cavity/04.webp" class="zoom"><img src="img/cavity/04.webp" alt="Lid-driven cavity, step 4: Size the box" loading="lazy" width="1900" height="1125"></a></figure>
+<aside class="tip"><p>Press <strong>Tab</strong> or <strong>Enter</strong> after typing a number. The 3D view follows what you type.</p></aside>
+</section>
+<section class="step" id="step-5">
+<h2><span class="step-number">5</span>Name the six faces</h2>
+<p>The six faces of the box become the boundaries of the flow. Give them names you will recognise later, and a type. Faces with the same name become one boundary.</p>
+<ol class="marks"><li><strong>xMin</strong>, <strong>xMax</strong> and <strong>yMin</strong>: name <code>walls</code>, type <code>wall</code>.</li><li><strong>yMax</strong>, the top: name <code>lid</code>, type <code>wall</code>.</li><li><strong>zMin</strong> and <strong>zMax</strong>, front and back: name <code>frontAndBack</code>, type <code>empty</code>. <em>Empty</em> tells OpenFOAM that nothing happens in that direction.</li></ol>
+<figure><a href="img/cavity/05.webp" class="zoom"><img src="img/cavity/05.webp" alt="Lid-driven cavity, step 5: Name the six faces" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-6">
+<h2><span class="step-number">6</span>Generate the mesh</h2>
+<p>There are no shapes to cut the mesh around, so switch that part off and make the mesh.</p>
+<ol class="marks"><li>Untick <strong>Refine and cut around the geometry</strong>.</li><li>Click <strong>Generate mesh</strong> (or press <strong>F5</strong>).</li></ol>
+<figure><a href="img/cavity/06.webp" class="zoom"><img src="img/cavity/06.webp" alt="Lid-driven cavity, step 6: Generate the mesh" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-7">
+<h2><span class="step-number">7</span>Check the mesh</h2>
+<p>After a few seconds the mesh appears in the 3D view. OpenFOAM's own mesh check has already run: its report is in the log.</p>
+<ol class="marks"><li>The <strong>Mesh</strong> step now shows a green tick and the number of cells.</li><li>Open the <strong>Log</strong> tab and look for <em>Mesh OK</em> near the end.</li><li>Click <strong>Next: Physics</strong>.</li></ol>
+<figure><a href="img/cavity/07.webp" class="zoom"><img src="img/cavity/07.webp" alt="Lid-driven cavity, step 7: Check the mesh" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-8">
+<h2><span class="step-number">8</span>Choose the physics</h2>
+<p>The flow is steady and slow, so the default flow type is right. Switch the turbulence model off and enter the viscosity.</p>
+<ol class="marks"><li>Leave <strong>Flow type</strong> on <em>Incompressible flow, steady</em>.</li><li><strong>Turbulence</strong>: <em>Laminar (no turbulence model)</em>.</li><li><strong>Fluid</strong>: <em>Custom</em>.</li><li><strong>Kinematic viscosity</strong>: <code>0.01</code>.</li></ol>
+<figure><a href="img/cavity/08.webp" class="zoom"><img src="img/cavity/08.webp" alt="Lid-driven cavity, step 8: Choose the physics" loading="lazy" width="1900" height="1125"></a></figure>
+<aside class="tip"><p>Hold the mouse over any input for a short explanation of what it means and a sensible value.</p></aside>
+</section>
+<section class="step" id="step-9">
+<h2><span class="step-number">9</span>Make the lid move</h2>
+<p>The <strong>Boundaries</strong> step lists the boundaries you named. Walls start as ordinary walls that stand still, which is right for <code>walls</code>. The lid needs a speed. The boundary you select lights up in the 3D view.</p>
+<ol class="marks"><li>Select <strong>lid</strong>.</li><li><strong>Condition</strong>: <em>Moving wall</em>.</li><li><strong>Velocity</strong>: <code>1</code>, <code>0</code>, <code>0</code> (1 m/s in the x direction).</li></ol>
+<figure><a href="img/cavity/09.webp" class="zoom"><img src="img/cavity/09.webp" alt="Lid-driven cavity, step 9: Make the lid move" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-10">
+<h2><span class="step-number">10</span>Set up the run</h2>
+<p>A steady run repeats the calculation until the flow no longer changes. Three hundred repeats (iterations) are plenty here. The run stops earlier by itself if the flow has settled before that.</p>
+<p>If something is still missing or wrong, a checklist at the bottom of this panel says so in plain words, and so does the mark next to each step on the left.</p>
+<ol class="marks"><li><strong>Iterations</strong>: <code>300</code>.</li><li><strong>Save every (iterations)</strong>: <code>100</code>.</li><li>Click <strong>Run</strong> in the toolbar (or press <strong>F6</strong>).</li></ol>
+<figure><a href="img/cavity/10.webp" class="zoom"><img src="img/cavity/10.webp" alt="Lid-driven cavity, step 10: Set up the run" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-11">
+<h2><span class="step-number">11</span>Watch it converge</h2>
+<p>While the run goes on, the <strong>Residuals</strong> plot shows how much each quantity still changes from one iteration to the next. Lines that fall steadily mean the solution is settling down. When the run ends, EasyFOAM jumps to the results by itself.</p>
+<ol class="marks"><li>The residuals of the velocity (<code>Ux</code>, <code>Uy</code>) and the pressure (<code>p</code>) fall by several powers of ten.</li><li>The <strong>Run</strong> step shows that the run finished.</li></ol>
+<figure><a href="img/cavity/11.webp" class="zoom"><img src="img/cavity/11.webp" alt="Lid-driven cavity, step 11: Watch it converge" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-12">
+<h2><span class="step-number">12</span>Look at the flow</h2>
+<p>The <strong>Results</strong> step shows the speed on a slice through the box: fast under the lid, slow in the corners, with one large eddy turning in the middle.</p>
+<ol class="marks"><li><strong>Quantity</strong>: <code>U</code> is the speed, <code>p</code> the pressure.</li><li><strong>Show</strong>: <em>Slice through the flow</em>.</li><li><strong>Slice plane</strong>: <em>Normal to z</em> looks straight into the box.</li><li><strong>Saved time</strong> steps through the saved iterations.</li><li>Click <strong>−Z</strong> to look straight at the slice.</li></ol>
+<figure><a href="img/cavity/12.webp" class="zoom"><img src="img/cavity/12.webp" alt="Lid-driven cavity, step 12: Look at the flow" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-13">
+<h2><span class="step-number">13</span>Try it yourself</h2>
+<ul><li>Halve the viscosity to <code>0.005</code> (Reynolds number 200) and run again: the eddy moves off-centre.</li><li>Use <code>80</code>, <code>80</code>, <code>1</code> cells and compare. A result that changes little on a finer mesh can be trusted more.</li><li>Tick <strong>Show cell edges</strong> in the Results step to see the mesh under the colours.</li><li>Click <strong>Open in ParaView</strong> for streamlines and anything else the built-in view does not offer.</li></ul>
+<p>Everything you did is stored in the project folder as an ordinary OpenFOAM case, which you can open, read and run by hand.</p>
+</section>
+  <nav class="pager"><a class="prev" href="getting-started.html"><span>Previous</span>Install and first look</a><a class="next" href="pipe.html"><span>Next</span>Laminar flow in a pipe</a></nav>
+</main>
+</div>
+<div class="lightbox" hidden><img alt=""></div>
+<footer class="foot">
+  <p>EasyFOAM is free software (GPL-3.0-or-later). It is an independent project: it is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com and owner of the OPENFOAM® and OpenCFD® trade marks, and it is not affiliated with any other vendor of simulation software.</p>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>

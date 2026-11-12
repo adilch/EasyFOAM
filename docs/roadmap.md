@@ -115,6 +115,18 @@ Open items:
 - Rotation about a hinge (a flap gate, a radial gate) as a set motion.
 - Combining moving shapes with mesh refinement at the water surface.
 
+## Tutorials website (0.7.1)
+
+- Ten tutorials in `docs/` (open `docs/index.html`): install, cavity from an empty project, pipe,
+  sphere, dam break, weir, waves, sluice gate, floating box, and a spillway from an STL file.
+- Each tutorial is described once in `website/tutorials/`; that description operates the real
+  application to take the pictures and produces the page, so text and pictures cannot drift apart.
+- Found on the way and fixed: a quantity computed after the run (y+, vorticity) was not offered in
+  the Results step when earlier saved times did not have it.
+
+Open items: tutorials for non-Newtonian fluids, the tracer, the tailwater outlet and CAD (STEP)
+import; a search box; translations.
+
 ## Next for hydraulics
 
 1. Cavitating flow in closed conduits (interPhaseChangeFoam: Schnerr-Sauer, Kunz, Merkle).

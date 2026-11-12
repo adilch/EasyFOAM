@@ -112,6 +112,7 @@ Legend: done = works and is tested end to end; partial; planned = see roadmap.
 | Live residual plot, convergence target, solver log, progress bar | done |
 | Graceful stop (saves first), continue a run, final state always saved | done |
 | Start page, step status badges, pre-run checklist, tooltips, SVG icons | done |
+| Step-by-step tutorials website, with pictures taken by running each tutorial in the real program | done |
 | Shape and boundary highlighting, view buttons, draggable point inside the fluid | done |
 | Drag and lift coefficients with live plot and forces in newtons | done |
 | y+, wall shear stress, vorticity, Q computed on demand | done |

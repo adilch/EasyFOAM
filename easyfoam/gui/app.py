@@ -10,8 +10,8 @@ from pathlib import Path
 os.environ.setdefault("QT_API", "pyside6")
 
 
-def save_snapshot(window, path: Path) -> None:
-    """Save a picture of the window, with the 3D view composited in.
+def grab_window(window):
+    """A picture of the window (a ``QPixmap``), with the 3D view composited in.
 
     The 3D view is drawn by OpenGL, which a plain widget grab does not capture,
     so its image is rendered separately and painted into place.
@@ -30,7 +30,12 @@ def save_snapshot(window, path: Path) -> None:
         painter = QPainter(pixmap)
         painter.drawImage(target, frame)
         painter.end()
-    pixmap.save(str(path))
+    return pixmap
+
+
+def save_snapshot(window, path: Path) -> None:
+    """Save a picture of the window to a file."""
+    grab_window(window).save(str(path))
 
 
 def main(argv: list[str] | None = None) -> int:

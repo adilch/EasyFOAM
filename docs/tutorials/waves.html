@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waves in a flume — EasyFOAM tutorials</title>
+<meta name="description" content="Make regular waves at one end of a flume, absorb them at the other, and measure them on the way.">
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="25" cy="32" r="8"/><path d="M8 15h14c11 0 13 7 23 7h11M8 49h14c11 0 13-7 23-7h11M41 32h15"/></svg><span>EasyFOAM</span><span class="brand-sub">tutorials</span></a>
+  <nav>
+    <a href="../index.html">All tutorials</a>
+    <a href="../tutorials/getting-started.html">Install</a>
+  </nav>
+</header>
+<div class="layout">
+<aside class="contents">
+  <a class="back" href="../index.html">← All tutorials</a>
+  <p class="contents-title">Steps</p>
+  <ol>
+<li><a href="#step-1">Open the example</a></li>
+<li><a href="#step-2">Name the project</a></li>
+<li><a href="#step-3">The flume</a></li>
+<li><a href="#step-4">Still water</a></li>
+<li><a href="#step-5">The wave maker</a></li>
+<li><a href="#step-6">The absorbing end</a></li>
+<li><a href="#step-7">Two gauges</a></li>
+<li><a href="#step-8">Run for twelve seconds</a></li>
+<li><a href="#step-9">The waves pass the gauges</a></li>
+<li><a href="#step-10">Measure the waves</a></li>
+<li><a href="#step-11">The wave train</a></li>
+<li><a href="#step-12">Try it yourself</a></li>
+  </ol>
+</aside>
+<main class="tutorial">
+  <p class="crumb">Tutorial 7 of 10</p>
+  <h1>Waves in a flume</h1>
+  <p class="lead">Make regular waves at one end of a flume, absorb them at the other, and measure them on the way.</p>
+  <div class="chips"><span class="chip">about 25 min</span><span class="chip level-intermediate">Intermediate</span><span class="chip topic">Free surface</span><span class="chip topic">Waves</span></div>
+  <p>A wave flume is a long, narrow tank with a wave maker at one end. Here it is 8 m long with water 0.4 m deep. The wave maker sends waves 0.04 m high every 1.5 seconds; the far end swallows them instead of sending them back; and two gauges record the water level as the waves pass.</p>
+<p>The flume is modelled as a thin slice, one cell thick, which keeps the run short.</p>
+  <div class="learn"><h3>What you will learn</h3><ul><li>fill a tank with still water to a level</li><li>set up a wave maker: height, period and wave theory</li><li>let waves leave without reflection</li><li>measure the waves with gauges and compare with what you asked for</li></ul><p class="run-time">Computer time: a few seconds for the mesh and a few minutes for the run.</p></div>
+<section class="step" id="step-1">
+<h2><span class="step-number">1</span>Open the example</h2>
+<p>Start EasyFOAM. This case is one of the examples on the start page: it comes with every setting filled in, and this tutorial walks through each of them so that you understand the case and could build it yourself.</p>
+<ol class="marks"><li>Click <strong>Waves in a flume</strong>.</li></ol>
+<figure><a href="img/waves/01.webp" class="zoom"><img src="img/waves/01.webp" alt="Waves in a flume, step 1: Open the example" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-2">
+<h2><span class="step-number">2</span>Name the project</h2>
+<p>The project is an ordinary folder that EasyFOAM creates for you.</p>
+<ol class="marks"><li>Type a name, for example <code>waves</code>.</li><li>Click <strong>Create project</strong>.</li></ol>
+<figure><a href="img/waves/02.webp" class="zoom"><img src="img/waves/02.webp" alt="Waves in a flume, step 2: Name the project" loading="lazy" width="650" height="225"></a></figure>
+</section>
+<section class="step" id="step-3">
+<h2><span class="step-number">3</span>The flume</h2>
+<p>There are no shapes: the flume is the base mesh itself, 8 m long, 0.8 m high and one 5 cm cell thick. The cells are 25 mm, so a 0.04 m wave is less than two cells high: enough to carry the wave, too few for fine detail.</p>
+<ol class="marks"><li><strong>Corner (max)</strong>: <code>8</code>, <code>0.05</code>, <code>0.8</code>.</li><li><strong>Cells</strong>: <code>320</code>, <code>1</code>, <code>32</code>.</li><li><code>inlet</code> will be the wave maker, <code>outlet</code> the absorbing end.</li><li>Front and back are <code>empty</code>: a two-dimensional case.</li><li>Click <strong>Mesh</strong> in the toolbar (or press <strong>F5</strong>).</li></ol>
+<figure><a href="img/waves/03.webp" class="zoom"><img src="img/waves/03.webp" alt="Waves in a flume, step 3: The flume" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-4">
+<h2><span class="step-number">4</span>Still water</h2>
+<p>The physics is free-surface flow without a turbulence model. The water starts at rest and fills the whole flume to 0.4 m, which is what <strong>Fill to a level</strong> produces: one box as long and wide as the mesh.</p>
+<ol class="marks"><li>One box of water, from <code>0, 0, 0</code> to <code>8, 0.05, 0.4</code>: still water 0.4 m deep.</li><li><strong>Gravity</strong>: <code>0</code>, <code>0</code>, <code>-9.81</code>.</li></ol>
+<figure><a href="img/waves/04.webp" class="zoom"><img src="img/waves/04.webp" alt="Waves in a flume, step 4: Still water" loading="lazy" width="1900" height="1125"></a></figure>
+<aside class="tip"><p>Make the still-water level fall on the line between two layers of cells (here 0.4 m = 16 cells of 25 mm). The water then starts exactly at the level you asked for.</p></aside>
+</section>
+<section class="step" id="step-5">
+<h2><span class="step-number">5</span>The wave maker</h2>
+<p>The inlet becomes a wave maker. You describe the waves you want and choose a wave theory that suits them; for ordinary regular waves the second-order Stokes theory is the usual choice.</p>
+<ol class="marks"><li>Select <strong>inlet</strong>.</li><li><strong>Condition</strong>: <em>Wave maker</em>.</li><li><strong>Wave height</strong>: <code>0.04</code> m, from trough to crest.</li><li><strong>Wave period</strong>: <code>1.5</code> s.</li><li><strong>Wave theory</strong>: <em>Stokes 2nd order</em>.</li></ol>
+<figure><a href="img/waves/05.webp" class="zoom"><img src="img/waves/05.webp" alt="Waves in a flume, step 5: The wave maker" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-6">
+<h2><span class="step-number">6</span>The absorbing end</h2>
+<p>A plain wall at the far end would send every wave back and spoil the measurement. The <em>Wave-absorbing outlet</em> moves like a paddle to cancel the waves that reach it.</p>
+<ol class="marks"><li>Select <strong>outlet</strong>.</li><li><strong>Condition</strong>: <em>Wave-absorbing outlet</em>.</li></ol>
+<figure><a href="img/waves/06.webp" class="zoom"><img src="img/waves/06.webp" alt="Waves in a flume, step 6: The absorbing end" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-7">
+<h2><span class="step-number">7</span>Two gauges</h2>
+<p>In the <strong>Run</strong> step, scroll down to the probes. Two gauges record the water depth: one 2 m from the wave maker, one 6 m from it. Comparing them shows whether the waves keep their height on the way.</p>
+<ol class="marks"><li>Gauges at x = <code>2</code> and x = <code>6</code>. Only x and y matter; the depth is measured along z.</li></ol>
+<figure><a href="img/waves/07.webp" class="zoom"><img src="img/waves/07.webp" alt="Waves in a flume, step 7: Two gauges" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-8">
+<h2><span class="step-number">8</span>Run for twelve seconds</h2>
+<p>Twelve seconds are eight wave periods: time for the first waves to cross the flume and for a regular pattern to form.</p>
+<ol class="marks"><li><strong>End time</strong>: <code>12</code> s.</li><li><strong>Keep the Courant number below</strong> <code>0.5</code>: waves need a smaller value than other free-surface flows.</li><li><strong>Save every</strong>: <code>0.25</code> s.</li><li>Click <strong>Run</strong> in the toolbar (or press <strong>F6</strong>).</li></ol>
+<figure><a href="img/waves/08.webp" class="zoom"><img src="img/waves/08.webp" alt="Waves in a flume, step 8: Run for twelve seconds" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-9">
+<h2><span class="step-number">9</span>The waves pass the gauges</h2>
+<p>Open the <strong>Probes</strong> tab during the run. The first gauge starts to move after about a second; the second one stays still until the waves have travelled the 6 m to it.</p>
+<ol class="marks"><li>Open the <strong>Probes</strong> tab: water depth at the two gauges.</li><li>How far the run is.</li></ol>
+<figure><a href="img/waves/09.webp" class="zoom"><img src="img/waves/09.webp" alt="Waves in a flume, step 9: The waves pass the gauges" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-10">
+<h2><span class="step-number">10</span>Measure the waves</h2>
+<p>At the end, both gauges swing evenly around 0.4 m. Read the height from trough to crest off the plot: about <strong>0.038 m</strong> at the first gauge and <strong>0.037 m</strong> at the second, for the 0.04 m asked for. The small loss comes from the coarse mesh. The mean level stays at 0.4 m, which shows that no water piles up at the absorbing end.</p>
+<ol class="marks"><li>Zoom into the plot with the mouse wheel to read the crests and troughs.</li></ol>
+<figure><a href="img/waves/10.webp" class="zoom"><img src="img/waves/10.webp" alt="Waves in a flume, step 10: Measure the waves" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-11">
+<h2><span class="step-number">11</span>The wave train</h2>
+<p>On a slice along the flume you can see the whole wave train at once. Because the flume is ten times longer than it is high and the waves are small, they look gentle: that is how they really are.</p>
+<ol class="marks"><li><strong>Quantity</strong>: <code>alpha.water</code>.</li><li><strong>Slice plane</strong>: <em>Normal to y</em>.</li><li>Step through <strong>Saved time</strong> to see the waves travel.</li></ol>
+<figure><a href="img/waves/11.webp" class="zoom"><img src="img/waves/11.webp" alt="Waves in a flume, step 11: The wave train" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-12">
+<h2><span class="step-number">12</span>Try it yourself</h2>
+<ul><li>Change the wave theory to <em>Solitary wave</em> and send a single crest down the flume.</li><li>Halve the cell size (<code>640</code>, <code>1</code>, <code>64</code> cells) and measure the wave height again.</li><li>Add a box in the Geometry step, standing on the bed in the middle of the flume, and watch the waves break over a submerged breakwater.</li></ul>
+</section>
+  <nav class="pager"><a class="prev" href="weir.html"><span>Previous</span>Flow over a weir</a><a class="next" href="gate.html"><span>Next</span>Lifting sluice gate</a></nav>
+</main>
+</div>
+<div class="lightbox" hidden><img alt=""></div>
+<footer class="foot">
+  <p>EasyFOAM is free software (GPL-3.0-or-later). It is an independent project: it is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com and owner of the OPENFOAM® and OpenCFD® trade marks, and it is not affiliated with any other vendor of simulation software.</p>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>

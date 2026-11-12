@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flow over a weir — EasyFOAM tutorials</title>
+<meta name="description" content="An open channel with a weir: set a discharge, measure the water level and compare it with the weir formula.">
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="25" cy="32" r="8"/><path d="M8 15h14c11 0 13 7 23 7h11M8 49h14c11 0 13-7 23-7h11M41 32h15"/></svg><span>EasyFOAM</span><span class="brand-sub">tutorials</span></a>
+  <nav>
+    <a href="../index.html">All tutorials</a>
+    <a href="../tutorials/getting-started.html">Install</a>
+  </nav>
+</header>
+<div class="layout">
+<aside class="contents">
+  <a class="back" href="../index.html">← All tutorials</a>
+  <p class="contents-title">Steps</p>
+  <ol>
+<li><a href="#step-1">Open the example</a></li>
+<li><a href="#step-2">Name the project</a></li>
+<li><a href="#step-3">The weir</a></li>
+<li><a href="#step-4">The channel</a></li>
+<li><a href="#step-5">The mesh</a></li>
+<li><a href="#step-6">Water, air and turbulence</a></li>
+<li><a href="#step-7">Start with a full reservoir</a></li>
+<li><a href="#step-8">The inflow</a></li>
+<li><a href="#step-9">The outflow</a></li>
+<li><a href="#step-10">A gauge and a discharge monitor</a></li>
+<li><a href="#step-11">Run for twenty seconds</a></li>
+<li><a href="#step-12">Is it steady yet?</a></li>
+<li><a href="#step-13">The water level in the reservoir</a></li>
+<li><a href="#step-14">The water surface</a></li>
+<li><a href="#step-15">Check it against the weir formula</a></li>
+<li><a href="#step-16">Try it yourself</a></li>
+  </ol>
+</aside>
+<main class="tutorial">
+  <p class="crumb">Tutorial 6 of 10</p>
+  <h1>Flow over a weir</h1>
+  <p class="lead">An open channel with a weir: set a discharge, measure the water level and compare it with the weir formula.</p>
+  <div class="chips"><span class="chip">about 30 min</span><span class="chip level-intermediate">Intermediate</span><span class="chip topic">Free surface</span><span class="chip topic">Hydraulic structures</span><span class="chip topic">Checked against theory</span></div>
+  <p>A weir is a wall across a channel that the water has to flow over. How high the water rises in front of it for a given discharge is the oldest question in hydraulics, and the reason weirs are used to measure flow. In this tutorial you send a known discharge down a channel, let the simulation find the water level, and compare it with the textbook formula.</p>
+<p>The channel is 6 m long and 0.5 m wide. The weir is 0.51 m high and 0.25 m thick, and the discharge is 0.05 m³/s (50 litres a second).</p>
+  <div class="learn"><h3>What you will learn</h3><ul><li>build a channel with a structure in it</li><li>use the hydraulic boundaries: an inlet by flow rate, a free outflow and an open top</li><li>record the discharge through a boundary and the water depth at a gauge</li><li>judge when a free-surface run has become steady</li></ul><p class="run-time">Computer time: about a minute for the mesh and several minutes for the run, on four cores.</p></div>
+<section class="step" id="step-1">
+<h2><span class="step-number">1</span>Open the example</h2>
+<p>Start EasyFOAM. This case is one of the examples on the start page: it comes with every setting filled in, and this tutorial walks through each of them so that you understand the case and could build it yourself.</p>
+<ol class="marks"><li>Click <strong>Flow over a weir</strong>.</li></ol>
+<figure><a href="img/weir/01.webp" class="zoom"><img src="img/weir/01.webp" alt="Flow over a weir, step 1: Open the example" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-2">
+<h2><span class="step-number">2</span>Name the project</h2>
+<p>The project is an ordinary folder that EasyFOAM creates for you.</p>
+<ol class="marks"><li>Type a name, for example <code>weir</code>.</li><li>Click <strong>Create project</strong>.</li></ol>
+<figure><a href="img/weir/02.webp" class="zoom"><img src="img/weir/02.webp" alt="Flow over a weir, step 2: Name the project" loading="lazy" width="650" height="225"></a></figure>
+</section>
+<section class="step" id="step-3">
+<h2><span class="step-number">3</span>The weir</h2>
+<p>The weir is a plain box. Like the pipe in the earlier tutorial, it is <strong>larger than the channel on purpose</strong>: it sticks out through both side walls and through the bed, so that the mesh is cut cleanly and no thin gaps are left at its edges.</p>
+<ol class="marks"><li>The shape <strong>weir</strong>.</li><li><strong>Corner (min)</strong>: <code>2.52</code>, <code>-1</code>, <code>-1</code>. Well outside the channel in y and z.</li><li><strong>Corner (max)</strong>: <code>2.77</code>, <code>2</code>, <code>0.51</code>. The last number is the height of the crest.</li><li><strong>Surface refinement</strong> <code>1</code> on the weir.</li></ol>
+<figure><a href="img/weir/03.webp" class="zoom"><img src="img/weir/03.webp" alt="Flow over a weir, step 3: The weir" loading="lazy" width="1900" height="1125"></a></figure>
+<aside class="tip"><p>A real spillway profile comes in the same way: <strong>Import</strong> an STL or STEP file. The tutorial on your own geometry shows how.</p></aside>
+</section>
+<section class="step" id="step-4">
+<h2><span class="step-number">4</span>The channel</h2>
+<p>The base mesh is the channel: 6 m long, 0.5 m wide and 1.5 m high, so that there is room for air above the water. Its faces are named for what they will be.</p>
+<ol class="marks"><li><strong>Corner (max)</strong>: <code>6</code>, <code>0.5</code>, <code>1.5</code>.</li><li><strong>Cells</strong>: <code>96</code>, <code>8</code>, <code>24</code>, which makes 62.5 mm cubes.</li><li><code>inlet</code> and <code>outlet</code> at the two ends, <code>sides</code> along the channel.</li><li><code>bed</code> at the bottom is a <code>wall</code>; <code>atmosphere</code> at the top is an opening.</li><li>Click <strong>Mesh</strong> in the toolbar (or press <strong>F5</strong>).</li></ol>
+<figure><a href="img/weir/04.webp" class="zoom"><img src="img/weir/04.webp" alt="Flow over a weir, step 4: The channel" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-5">
+<h2><span class="step-number">5</span>The mesh</h2>
+<p>The mesh has about 20,000 cells, with finer ones on the weir. The weir itself is now a hole in the mesh with a wall called <code>weir</code> around it.</p>
+<ol class="marks"><li>The number of cells.</li><li>The weir stands in the channel; the boundaries are listed in the corner of the view.</li></ol>
+<figure><a href="img/weir/05.webp" class="zoom"><img src="img/weir/05.webp" alt="Flow over a weir, step 5: The mesh" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-6">
+<h2><span class="step-number">6</span>Water, air and turbulence</h2>
+<p>The flow type is the free-surface one. Flow over a weir is turbulent, so a turbulence model is switched on.</p>
+<ol class="marks"><li><strong>Flow type</strong>: <em>Free surface: water and air</em>.</li><li><strong>Turbulence</strong>: <em>k-omega SST</em>.</li><li><strong>Fluid</strong>: <em>Water</em>.</li></ol>
+<figure><a href="img/weir/06.webp" class="zoom"><img src="img/weir/06.webp" alt="Flow over a weir, step 6: Water, air and turbulence" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-7">
+<h2><span class="step-number">7</span>Start with a full reservoir</h2>
+<p>A run that starts with an empty channel spends most of its time filling up. Start with the reservoir already full to just below the crest instead: one box of water from the inlet to the weir, 0.5 m deep.</p>
+<ol class="marks"><li>One box: from <code>0, 0, 0</code> to <code>2.52, 0.5, 0.5</code>.</li><li><strong>Gravity</strong>: <code>0</code>, <code>0</code>, <code>-9.81</code>.</li></ol>
+<figure><a href="img/weir/07.webp" class="zoom"><img src="img/weir/07.webp" alt="Flow over a weir, step 7: Start with a full reservoir" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-8">
+<h2><span class="step-number">8</span>The inflow</h2>
+<p>The inlet is the heart of a channel case. <em>Inlet by flow rate</em> brings in the discharge you ask for, and it lets the water find its own level on the inlet: you do not need to know the depth beforehand.</p>
+<ol class="marks"><li>Select <strong>inlet</strong>.</li><li><strong>Condition</strong>: <em>Inlet by flow rate</em>.</li><li><strong>Flow rate</strong>: <code>0.05</code> m³/s.</li></ol>
+<figure><a href="img/weir/08.webp" class="zoom"><img src="img/weir/08.webp" alt="Flow over a weir, step 8: The inflow" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-9">
+<h2><span class="step-number">9</span>The outflow</h2>
+<p>Downstream of the weir the water shoots along the bed. <em>Free outflow</em> lets whatever arrives leave undisturbed. The remaining boundaries need no numbers: <code>atmosphere</code> is open to the air, the <code>sides</code> are frictionless (slip), and <code>bed</code> and <code>weir</code> are walls.</p>
+<ol class="marks"><li>Select <strong>outlet</strong>.</li><li><strong>Condition</strong>: <em>Free outflow</em>.</li></ol>
+<figure><a href="img/weir/09.webp" class="zoom"><img src="img/weir/09.webp" alt="Flow over a weir, step 9: The outflow" loading="lazy" width="1900" height="1125"></a></figure>
+<aside class="tip"><p>If the water downstream is deep and slow, use <em>Outlet at a water level</em> instead and give the tailwater level.</p></aside>
+</section>
+<section class="step" id="step-10">
+<h2><span class="step-number">10</span>A gauge and a discharge monitor</h2>
+<p>In the <strong>Run</strong> step, scroll down to the monitors. In a free-surface case each probe point acts as a <strong>gauge</strong>: it records the depth of water there. A second monitor records the discharge through a boundary. Together they tell you when the flow has become steady.</p>
+<ol class="marks"><li>One gauge in the reservoir, at <code>1.2</code>, <code>0.25</code>, <code>0.3</code>. Only its x and y matter.</li><li>Under <strong>Discharge</strong>, <strong>Through</strong>: <code>outlet</code>.</li></ol>
+<figure><a href="img/weir/10.webp" class="zoom"><img src="img/weir/10.webp" alt="Flow over a weir, step 10: A gauge and a discharge monitor" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-11">
+<h2><span class="step-number">11</span>Run for twenty seconds</h2>
+<p>The reservoir needs time to rise to the level that pushes 50 litres a second over the crest. Twenty seconds of simulated time are enough here.</p>
+<ol class="marks"><li><strong>End time</strong>: <code>20</code> s.</li><li><strong>Save every</strong>: <code>0.5</code> s.</li><li><strong>Processor cores</strong>: <code>4</code>.</li><li>Click <strong>Run</strong> in the toolbar (or press <strong>F6</strong>).</li></ol>
+<figure><a href="img/weir/11.webp" class="zoom"><img src="img/weir/11.webp" alt="Flow over a weir, step 11: Run for twenty seconds" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-12">
+<h2><span class="step-number">12</span>Is it steady yet?</h2>
+<p>Watch the <strong>Discharge</strong> tab while the run goes on. At first nothing leaves, then the first surge arrives at the outlet, and finally the outflow settles at what comes in. When the outflow equals the inflow, the amount of water in the channel has stopped changing.</p>
+<ol class="marks"><li>Open the <strong>Discharge</strong> tab.</li><li>The latest value. It should end close to 0.05 m³/s.</li><li>How far the run is.</li></ol>
+<figure><a href="img/weir/12.webp" class="zoom"><img src="img/weir/12.webp" alt="Flow over a weir, step 12: Is it steady yet?" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-13">
+<h2><span class="step-number">13</span>The water level in the reservoir</h2>
+<p>When the run has finished, open the <strong>Probes</strong> tab. The gauge shows the depth in the reservoir rising and then levelling off at about <strong>0.67 m</strong>. The crest is at 0.51 m, so the water stands about <strong>0.16 m</strong> above it. That is the <em>head</em> on the weir.</p>
+<ol class="marks"><li>Open the <strong>Probes</strong> tab: the water depth at the gauge over time.</li></ol>
+<figure><a href="img/weir/13.webp" class="zoom"><img src="img/weir/13.webp" alt="Flow over a weir, step 13: The water level in the reservoir" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-14">
+<h2><span class="step-number">14</span>The water surface</h2>
+<p>The <strong>Results</strong> step opens on the water surface, coloured by the speed of the water: slow in the reservoir, fast where it plunges over the crest and along the bed.</p>
+<ol class="marks"><li><strong>Show</strong>: <em>Water surface</em>.</li><li><strong>Quantity</strong>: <code>U</code> colours the surface by speed.</li><li>Step through <strong>Saved time</strong> to watch the flow establish itself.</li></ol>
+<figure><a href="img/weir/14.webp" class="zoom"><img src="img/weir/14.webp" alt="Flow over a weir, step 14: The water surface" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-15">
+<h2><span class="step-number">15</span>Check it against the weir formula</h2>
+<p>For a broad-crested weir without losses, the discharge per metre of width is q = 1.705 × H^1.5, with H the head above the crest. Here q = 0.05 / 0.5 = 0.1 m²/s, which gives H = (0.1 / 1.705)^(2/3) = <strong>0.151 m</strong>.</p>
+<p>The simulation gives about 0.16 m. A real, square-edged weir has losses that the ideal formula leaves out, so a head a little above 0.151 m is what one expects. Keep in mind that the cells are 62.5 mm high, so there are only about three of them across the head: treat this as a check that the result is sensible, not as a calibration. For figures you can rely on, refine the mesh until the head no longer changes.</p>
+</section>
+<section class="step" id="step-16">
+<h2><span class="step-number">16</span>Try it yourself</h2>
+<ul><li>Double the flow rate. By the formula the head should rise by a factor of 2^(2/3) = 1.59.</li><li>Use <code>192</code>, <code>16</code>, <code>48</code> cells (it will take much longer) and see how the head changes.</li><li>In the Results step, choose the quantity <code>cavitationIndex</code> to see where the pressure on the structure is lowest.</li><li>Set <strong>Refine at the water surface</strong> to <code>1</code> in the Physics step: the mesh then follows the surface.</li></ul>
+</section>
+  <nav class="pager"><a class="prev" href="dambreak.html"><span>Previous</span>Dam break</a><a class="next" href="waves.html"><span>Next</span>Waves in a flume</a></nav>
+</main>
+</div>
+<div class="lightbox" hidden><img alt=""></div>
+<footer class="foot">
+  <p>EasyFOAM is free software (GPL-3.0-or-later). It is an independent project: it is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com and owner of the OPENFOAM® and OpenCFD® trade marks, and it is not affiliated with any other vendor of simulation software.</p>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>

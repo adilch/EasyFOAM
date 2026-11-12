@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Air flow past a sphere — EasyFOAM tutorials</title>
+<meta name="description" content="External flow: a body in a wind tunnel, a turbulence model, and its drag.">
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="25" cy="32" r="8"/><path d="M8 15h14c11 0 13 7 23 7h11M8 49h14c11 0 13-7 23-7h11M41 32h15"/></svg><span>EasyFOAM</span><span class="brand-sub">tutorials</span></a>
+  <nav>
+    <a href="../index.html">All tutorials</a>
+    <a href="../tutorials/getting-started.html">Install</a>
+  </nav>
+</header>
+<div class="layout">
+<aside class="contents">
+  <a class="back" href="../index.html">← All tutorials</a>
+  <p class="contents-title">Steps</p>
+  <ol>
+<li><a href="#step-1">Open the example</a></li>
+<li><a href="#step-2">Name the project</a></li>
+<li><a href="#step-3">The body</a></li>
+<li><a href="#step-4">A finer mesh in the wake</a></li>
+<li><a href="#step-5">The wind tunnel</a></li>
+<li><a href="#step-6">The mesh</a></li>
+<li><a href="#step-7">Air and a turbulence model</a></li>
+<li><a href="#step-8">The wind</a></li>
+<li><a href="#step-9">How long to run</a></li>
+<li><a href="#step-10">Measure the drag</a></li>
+<li><a href="#step-11">Watch the drag settle</a></li>
+<li><a href="#step-12">The flow around the sphere</a></li>
+<li><a href="#step-13">Is the mesh fine enough at the wall?</a></li>
+<li><a href="#step-14">Try it yourself</a></li>
+  </ol>
+</aside>
+<main class="tutorial">
+  <p class="crumb">Tutorial 4 of 10</p>
+  <h1>Air flow past a sphere</h1>
+  <p class="lead">External flow: a body in a wind tunnel, a turbulence model, and its drag.</p>
+  <div class="chips"><span class="chip">about 25 min</span><span class="chip level-beginner">Beginner</span><span class="chip topic">External flow</span><span class="chip topic">Turbulence</span><span class="chip topic">Forces</span></div>
+  <p>Most flows of practical interest go <em>around</em> something: a car, a building, a bridge pier. The recipe is always the same. Put the body in a box that is much larger than the body (a virtual wind tunnel), refine the mesh near the body and in its wake, blow air in at one end and measure the force.</p>
+<p>Here the body is a sphere 1 m across in air at 10 m/s. The Reynolds number is about 670,000, so the flow is turbulent and needs a turbulence model.</p>
+  <div class="learn"><h3>What you will learn</h3><ul><li>refine the mesh on a surface and inside a region</li><li>size a wind tunnel around a body</li><li>use a turbulence model</li><li>record drag and lift while the run goes on, and check the mesh near the wall with y+</li></ul><p class="run-time">Computer time: about a minute for the mesh and two minutes for the run, on four cores.</p></div>
+<section class="step" id="step-1">
+<h2><span class="step-number">1</span>Open the example</h2>
+<p>Start EasyFOAM. This case is one of the examples on the start page: it comes with every setting filled in, and this tutorial walks through each of them so that you understand the case and could build it yourself.</p>
+<ol class="marks"><li>Click <strong>Air flow past a sphere</strong>.</li></ol>
+<figure><a href="img/sphere/01.webp" class="zoom"><img src="img/sphere/01.webp" alt="Air flow past a sphere, step 1: Open the example" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-2">
+<h2><span class="step-number">2</span>Name the project</h2>
+<p>The project is an ordinary folder that EasyFOAM creates for you.</p>
+<ol class="marks"><li>Type a name, for example <code>sphere</code>.</li><li>Click <strong>Create project</strong>.</li></ol>
+<figure><a href="img/sphere/02.webp" class="zoom"><img src="img/sphere/02.webp" alt="Air flow past a sphere, step 2: Name the project" loading="lazy" width="650" height="248"></a></figure>
+</section>
+<section class="step" id="step-3">
+<h2><span class="step-number">3</span>The body</h2>
+<p>The first shape is the sphere, <code>ball</code>. Its <strong>surface refinement</strong> decides how fine the mesh is on its skin: each level halves the size of the base cells. Level 2 to 3 means the cells there are 4 to 8 times smaller than the base cells.</p>
+<ol class="marks"><li>Select <strong>ball</strong>.</li><li><strong>Radius</strong>: <code>0.5</code> m, centred on the origin.</li><li><strong>Surface refinement, min</strong>: <code>2</code>.</li><li><strong>Surface refinement, max</strong>: <code>3</code>, used where the surface curves.</li></ol>
+<figure><a href="img/sphere/03.webp" class="zoom"><img src="img/sphere/03.webp" alt="Air flow past a sphere, step 3: The body" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-4">
+<h2><span class="step-number">4</span>A finer mesh in the wake</h2>
+<p>The second shape is not a solid. It is a <strong>refinement region</strong>: a box behind the sphere inside which the cells are made smaller, because that is where the wake is and where the flow changes quickly.</p>
+<ol class="marks"><li>Select <strong>wake</strong>.</li><li><strong>Use as</strong>: <em>Refinement region</em>.</li><li>The box reaches from 1 m ahead of the centre to 4 m behind it.</li><li><strong>Refinement inside</strong>: <code>1</code>, so half the base cell size.</li></ol>
+<figure><a href="img/sphere/04.webp" class="zoom"><img src="img/sphere/04.webp" alt="Air flow past a sphere, step 4: A finer mesh in the wake" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-5">
+<h2><span class="step-number">5</span>The wind tunnel</h2>
+<p>The base mesh is the tunnel: 10 m long, 5 m wide and 5 m high, made of 0.25 m cubes. The sphere sits 3 m from the inlet, with 7 m behind it for the wake. The faces already carry useful names: air comes in through <code>inlet</code> (xMin), leaves through <code>outlet</code> (xMax), and the four <code>sides</code> are far away.</p>
+<ol class="marks"><li><strong>Corner (min)</strong> <code>-3</code>, <code>-2.5</code>, <code>-2.5</code> and <strong>Corner (max)</strong> <code>7</code>, <code>2.5</code>, <code>2.5</code>.</li><li><strong>Cells</strong>: <code>40</code>, <code>20</code>, <code>20</code>.</li><li>The names of the six faces.</li><li>Click <strong>Mesh</strong> in the toolbar (or press <strong>F5</strong>).</li></ol>
+<figure><a href="img/sphere/05.webp" class="zoom"><img src="img/sphere/05.webp" alt="Air flow past a sphere, step 5: The wind tunnel" loading="lazy" width="1900" height="1125"></a></figure>
+<aside class="tip"><p>For your own body, click <strong>Size the base mesh automatically</strong>: it builds a tunnel like this one around it.</p></aside>
+</section>
+<section class="step" id="step-6">
+<h2><span class="step-number">6</span>The mesh</h2>
+<p>Meshing takes about a minute. The result has roughly 28,000 cells: coarse far away, finer in the wake box, finest on the sphere.</p>
+<ol class="marks"><li>The number of cells.</li><li>Turn the view with the left mouse button to look at the sphere's surface mesh.</li></ol>
+<figure><a href="img/sphere/06.webp" class="zoom"><img src="img/sphere/06.webp" alt="Air flow past a sphere, step 6: The mesh" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-7">
+<h2><span class="step-number">7</span>Air and a turbulence model</h2>
+<p>The defaults fit: steady flow of air with the <em>k-omega SST</em> model, the usual first choice for flow around bodies. Set the starting velocity to the wind speed so that the run does not have to accelerate the air from rest.</p>
+<ol class="marks"><li><strong>Flow type</strong>: <em>Incompressible flow, steady</em>.</li><li><strong>Turbulence</strong>: <em>k-omega SST</em>.</li><li><strong>Fluid</strong>: <em>Air</em>.</li><li><strong>Initial velocity</strong>: <code>10</code>, <code>0</code>, <code>0</code>.</li></ol>
+<figure><a href="img/sphere/07.webp" class="zoom"><img src="img/sphere/07.webp" alt="Air flow past a sphere, step 7: Air and a turbulence model" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-8">
+<h2><span class="step-number">8</span>The wind</h2>
+<p>Only the inlet needs a number. The outlet is a pressure outlet at zero, and the <code>sides</code> are <em>slip</em> boundaries: nothing flows through them and they cause no friction, which is how a far-away boundary should behave. The sphere itself, <code>ball</code>, is a wall.</p>
+<ol class="marks"><li>Select <strong>inlet</strong>.</li><li><strong>Condition</strong>: <em>Velocity inlet</em>.</li><li><strong>Velocity</strong>: <code>10</code>, <code>0</code>, <code>0</code>.</li></ol>
+<figure><a href="img/sphere/08.webp" class="zoom"><img src="img/sphere/08.webp" alt="Air flow past a sphere, step 8: The wind" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-9">
+<h2><span class="step-number">9</span>How long to run</h2>
+<p>Two hundred iterations are enough for the drag to settle on this mesh.</p>
+<ol class="marks"><li><strong>Iterations</strong>: <code>200</code>.</li><li><strong>Save every (iterations)</strong>: <code>50</code>.</li><li><strong>Processor cores</strong>: <code>4</code>. The mesh is split and put back together for you.</li></ol>
+<figure><a href="img/sphere/09.webp" class="zoom"><img src="img/sphere/09.webp" alt="Air flow past a sphere, step 9: How long to run" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-10">
+<h2><span class="step-number">10</span>Measure the drag</h2>
+<p>Further down the same panel, switch on the force monitor. The drag coefficient compares the force with the pressure of the wind on the body's frontal area, here a disc of radius 0.5 m: π × 0.5² = 0.7854 m².</p>
+<ol class="marks"><li>Tick <strong>Record drag and lift every iteration</strong>.</li><li><strong>Reference area</strong>: <code>0.7854</code>. The ruler button estimates it from the shapes.</li><li><strong>Reference length</strong>: <code>1</code>, the diameter.</li><li>Click <strong>Run</strong> in the toolbar (or press <strong>F6</strong>).</li></ol>
+<figure><a href="img/sphere/10.webp" class="zoom"><img src="img/sphere/10.webp" alt="Air flow past a sphere, step 10: Measure the drag" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-11">
+<h2><span class="step-number">11</span>Watch the drag settle</h2>
+<p>Open the <strong>Forces</strong> tab while the run goes on. The drag coefficient <code>Cd</code> swings at first and then flattens out. A force that no longer changes is a better sign of a finished run than the residuals.</p>
+<p>On this coarse mesh <code>Cd</code> ends near <strong>0.21</strong>. Measurements for a smooth sphere at this speed lie between 0.1 and 0.5, because the flow is right at the point where the drag suddenly drops; a finer mesh is needed to say more.</p>
+<ol class="marks"><li>Open the <strong>Forces</strong> tab.</li><li>The latest coefficients, and the forces in newtons.</li></ol>
+<figure><a href="img/sphere/11.webp" class="zoom"><img src="img/sphere/11.webp" alt="Air flow past a sphere, step 11: Watch the drag settle" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-12">
+<h2><span class="step-number">12</span>The flow around the sphere</h2>
+<p>A slice through the middle shows the air slowing to a stop at the front of the sphere, speeding up over the top and bottom, and leaving a slow wake behind.</p>
+<ol class="marks"><li><strong>Quantity</strong>: <code>U</code>. Try <code>p</code> for the pressure, too.</li><li><strong>Slice plane</strong>: <em>Normal to y</em>.</li><li>Drag <strong>Slice position</strong> to move the slice through the tunnel.</li></ol>
+<figure><a href="img/sphere/12.webp" class="zoom"><img src="img/sphere/12.webp" alt="Air flow past a sphere, step 12: The flow around the sphere" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-13">
+<h2><span class="step-number">13</span>Is the mesh fine enough at the wall?</h2>
+<p>Turbulence models make assumptions about the thin layer of air next to a wall, and those only hold if the first cell has the right height. The number that tells you is called <strong>y+</strong>. With wall functions, as used here, it should lie roughly between 30 and 300.</p>
+<p>Here it runs from about 130 to 1100, with a mean near 600: the cells on the sphere are too thick. That is the honest verdict on this quick example mesh, and the reason its drag figure is only a rough one. The next step shows what to do about it.</p>
+<ol class="marks"><li>Under <strong>Derived quantities</strong>, choose <em>y+ (wall resolution)</em>.</li><li>Click <strong>Compute for the latest result</strong>. The sphere is then coloured by y+.</li><li>The range of y+ on each wall is written here.</li></ol>
+<figure><a href="img/sphere/13.webp" class="zoom"><img src="img/sphere/13.webp" alt="Air flow past a sphere, step 13: Is the mesh fine enough at the wall?" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-14">
+<h2><span class="step-number">14</span>Try it yourself</h2>
+<ul><li>Raise the sphere's surface refinement to <code>3</code> and <code>4</code>, mesh and run again: y+ falls and the drag changes.</li><li>Give the sphere <strong>Boundary-layer cells</strong> (try <code>3</code>) in the Geometry step: thin cells stacked on its skin bring y+ down much more cheaply than refining everywhere.</li><li>Replace the sphere: click <strong>Import</strong> in the Geometry step, bring in an STL or STEP file of your own body, and click <strong>Size the base mesh automatically</strong>.</li></ul>
+</section>
+  <nav class="pager"><a class="prev" href="pipe.html"><span>Previous</span>Laminar flow in a pipe</a><a class="next" href="dambreak.html"><span>Next</span>Dam break</a></nav>
+</main>
+</div>
+<div class="lightbox" hidden><img alt=""></div>
+<footer class="foot">
+  <p>EasyFOAM is free software (GPL-3.0-or-later). It is an independent project: it is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com and owner of the OPENFOAM® and OpenCFD® trade marks, and it is not affiliated with any other vendor of simulation software.</p>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>
