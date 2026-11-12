@@ -114,6 +114,9 @@ def field_dicts(project: Project, patches: Sequence[Patch]) -> dict[str, tuple[s
                 },
             },
         )
+    from easyfoam.casegen import motion
+
+    motion.apply_wall_velocity(project, patches, out)
     out.update(base.tracer_fields(project, patches, boundaries))
     return out
 

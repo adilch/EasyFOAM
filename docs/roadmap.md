@@ -76,7 +76,7 @@ Still open for hydraulics:
 - Several tailwater levels in one case (one reference level is supported).
 - Sediment transport and air entrainment (out of scope for now).
 
-## v0.6 - quick additions and hydraulics extras (this version)
+## v0.6 - quick additions and hydraulics extras
 
 The build order from here on follows the capability review of 2026-11, hydraulics first.
 
@@ -90,11 +90,36 @@ Done:
   waves; mesh refinement that follows the water surface (serial and parallel);
   cavitation index computed from the results.
 
+## v0.7 - moving gates and floating bodies (this version)
+
+Done:
+
+- Any solid shape can be given a motion in the Geometry step: move to a new
+  position over a set time (a gate that opens), swing back and forth, or float.
+- A floating body is moved by the water and its own weight (rigid-body motion,
+  6DoF). Its mass, centre and inertia are worked out from its shape and
+  density, for boxes, spheres, cylinders and closed STL surfaces. Freedom:
+  up and down only, in the x-z plane, or all six directions.
+- A Motion tab plots where each moving shape is and how far a floating body
+  has turned, live.
+- Two examples: a lifting sluice gate and a floating box. Checks stop set-ups
+  that cannot work (steady solver, a floating body without water, and so on).
+
+Open items:
+
+- The mesh stretches to follow a shape; cells are not added or removed. So a
+  gate cannot shut completely, and a body cannot roll over or travel far.
+  Overset or re-meshing would lift this.
+- Floating bodies and shapes with a set motion cannot be mixed in one run.
+- No mooring lines, springs or dampers on a floating body; it always starts at rest.
+- Rotation about a hinge (a flap gate, a radial gate) as a set motion.
+- Combining moving shapes with mesh refinement at the water surface.
+
 ## Next for hydraulics
 
-1. Moving parts: prescribed motion (gates, valves) and floating bodies (6DoF).
-2. Cavitating flow in closed conduits (interPhaseChangeFoam: Schnerr-Sauer, Kunz, Merkle).
-3. Irregular (spectrum) waves and stream-function waves.
+1. Cavitating flow in closed conduits (interPhaseChangeFoam: Schnerr-Sauer, Kunz, Merkle).
+2. Irregular (spectrum) waves and stream-function waves.
+3. Hinged gates and moorings (see the open items above).
 
 ## Then, in this order
 
@@ -114,7 +139,7 @@ Done:
   and heat-flux boundaries, thermophysical material database.
 - Passive scalar transport.
 
-## v0.6 - more ways in and out
+## Later - more ways in and out
 
 - STL check and repair; geometry booleans.
 - Mesh import: Fluent, Gmsh, existing OpenFOAM cases (read boundary and fields).
@@ -122,7 +147,7 @@ Done:
 - Foundation-line (openfoam.org) dictionary dialect.
 - Windows installer.
 
-## v0.7 - rotating machinery and regions
+## Later - rotating machinery and regions
 
 - Cell zones, MRF, porous zones.
 - Cyclic / AMI interfaces, sliding mesh.
@@ -132,7 +157,7 @@ Done:
 
 - Compressible flow (rhoSimpleFoam, rhoPimpleFoam, rhoCentralFoam).
 - Particles (DPM), sprays, combustion.
-- 6DoF and overset motion.
+- Overset motion (large movements, bodies that roll over, gates that shut).
 - LES / DES set-up helpers.
 - Parameters and expressions; parametric sweeps from the command line.
 - Remote and cluster runs (SSH, Slurm, PBS).

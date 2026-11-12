@@ -7,6 +7,7 @@ notices the normal ``End`` marker or a ``FOAM FATAL ERROR`` block.
 
 from __future__ import annotations
 
+import math
 import re
 
 _NUM = r"([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)"
@@ -16,6 +17,28 @@ _COURANT = re.compile(rf"^Courant Number mean: {_NUM} max: {_NUM}")
 _CONTINUITY = re.compile(rf"continuity errors : sum local = {_NUM}, global = {_NUM}")
 _EXEC = re.compile(rf"^ExecutionTime = {_NUM} s")
 _PHASE = re.compile(rf"^Phase-1 volume fraction = {_NUM}")
+_BODY = re.compile(r"^Rigid-body motion of the (\S+)")
+_CENTRE = re.compile(rf"^\s*Centre of (?:rotation|mass): \({_NUM} {_NUM} {_NUM}\)")
+_ORIENTATION = re.compile(r"^\s*Orientation: \(" + " ".join([_NUM] * 9) + r"\)")
+
+
+def _replace_or_add(track: list, point: tuple) -> None:
+    """Keep one value per time step: a later pass of the same step replaces the earlier one."""
+    if track and track[-1][0] == point[0]:
+        track[-1] = point
+    else:
+        track.append(point)
+
+
+def euler_angles(r: list[float]) -> list[float]:
+    """Roll, pitch and yaw in degrees (turns about x, y, z by the right-hand rule) of a rotation matrix.
+
+    The matrix is given row by row and turns the body's axes into the fixed ones.
+    """
+    pitch = -math.asin(max(-1.0, min(1.0, r[6])))
+    roll = math.atan2(r[7], r[8])
+    yaw = math.atan2(r[3], r[0])
+    return [math.degrees(roll), math.degrees(pitch), math.degrees(yaw)]
 _ERROR_MAX_LINES = 20
 
 
@@ -31,6 +54,11 @@ class LogParser:
         #: (time, share of the domain filled with water) for free-surface runs
         self.water_fraction: list[tuple[float, float]] = []
         self._phase_this_step = False
+        #: floating bodies: name -> [(time, [x, y, z] of its centre)]
+        self.body_positions: dict[str, list[tuple[float, list[float]]]] = {}
+        #: floating bodies: name -> [(time, [roll, pitch, yaw] in degrees)]
+        self.body_rotations: dict[str, list[tuple[float, list[float]]]] = {}
+        self._body = "body"
         self.finished = False
         self.error: str | None = None
         self._seen_this_step: set[str] = set()
@@ -77,6 +105,21 @@ class LogParser:
         if not self.times:
             return
         now = self.times[-1]
+
+        m = _BODY.match(line)
+        if m:
+            self._body = m.group(1)
+            return
+        m = _CENTRE.match(line)
+        if m:
+            point = (now, [float(m.group(1)), float(m.group(2)), float(m.group(3))])
+            _replace_or_add(self.body_positions.setdefault(self._body, []), point)
+            return
+        m = _ORIENTATION.match(line)
+        if m:
+            angles = euler_angles([float(v) for v in m.groups()])
+            _replace_or_add(self.body_rotations.setdefault(self._body, []), (now, angles))
+            return
 
         m = _PHASE.match(line)
         if m:

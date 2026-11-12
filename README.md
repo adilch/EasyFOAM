@@ -6,9 +6,9 @@ Geometry, meshing, case set-up, running and results in one window, driving
 
 ![EasyFOAM workspace](docs/images/Forces.png)
 
-Status: **v0.6, alpha.** The whole loop works for incompressible flow around
+Status: **v0.7, alpha.** The whole loop works for incompressible flow around
 bodies, inside pipes and ducts, and with a free water surface (weirs, spillways,
-dam breaks); see
+dam breaks), including gates that move and bodies that float; see
 [what works](#what-works-today) and the [roadmap](docs/roadmap.md).
 
 ## Why another GUI
@@ -40,6 +40,7 @@ Good free tools already exist: [BARAM](https://github.com/nextfoam/baram)
 | Geometry | STEP / IGES / BREP import (optional `gmsh` package), length unit chosen on import; STL import (ASCII and binary), with each named solid of an STL usable as a wall or an opening; box, sphere, cylinder primitives; shapes as solid surfaces or refinement regions |
 | Mesh | Base mesh box with named faces; automatic sizing (wind tunnel, or snug box for internal flow); snappyHexMesh with surface refinement, refinement regions and by distance, feature edges and boundary layers; fluid outside or inside a shape; checkMesh report |
 | Free surface | Water and air with a free surface (interFoam): gravity, surface tension, water placed as boxes or filled to a level, time step that follows the water surface; a sharper-interface variant (interIsoFoam); waves (Stokes 1st, 2nd and 5th order, cnoidal, solitary) with a wave maker and an absorbing outlet; contact angle; mesh refinement that follows the water surface; cavitation index; discharge and water-depth monitors |
+| Moving shapes | A solid shape can move to a new position over a set time (a gate that opens), swing back and forth, or float: a floating body is moved by the water and its own weight (6DoF), with its mass and inertia worked out from its shape and density; live plot of position and tilt |
 | Physics | Incompressible flow, steady (simpleFoam) and transient (pimpleFoam); laminar, k-epsilon (standard, realizable, RNG), k-omega (standard, SST), Spalart-Allmaras, k-kl-omega transition; wall functions or resolved boundary layer; non-Newtonian fluids; a passive tracer; velocity limiter; potential-flow start; small fluid list |
 | Boundaries | Velocity inlet, inlet by flow rate (follows the water level in free-surface flow), pressure outlet, free outflow, outlet at a tailwater level, wave maker, wave-absorbing outlet, open atmosphere, wall, moving wall, slip, symmetry / empty; sensible defaults from patch names and types |
 | Run | Serial or parallel (automatic decomposition and reconstruction); live residual plot; convergence target; drag and lift coefficients with a live plot and forces in newtons; probes; frontal-area estimate; graceful stop and continue; the final state is always saved; log |
@@ -90,7 +91,8 @@ Desktop application:
 ```
 
 Then *File > New from example* (air flow past a sphere, laminar flow in a pipe,
-the lid-driven cavity, flow over a weir, a dam break, or waves in a flume), press **Generate mesh** (F5) and **Run** (F6). The steps on the left go in order: Geometry, Mesh,
+the lid-driven cavity, flow over a weir, a dam break, waves in a flume, a lifting
+sluice gate, or a floating box), press **Generate mesh** (F5) and **Run** (F6). The steps on the left go in order: Geometry, Mesh,
 Physics, Boundaries, Run, Results.
 
 Command line, same operations:
@@ -128,6 +130,33 @@ two gauges, with the mean level unchanged and no water piling up at the absorbin
 ![Flow over a weir](docs/images/Weir.png)
 
 The dam-break example conserves its water to within 1 % while the surge crosses the tank.
+
+### A floating box and a lifting gate
+
+The floating-box example drops a 0.3 x 0.3 x 0.12 m box of half the density of water into a tank,
+3 cm above where it belongs. By Archimedes it must float 6 cm deep, with its centre at the water
+surface, which the box itself raises from 0.400 m to 0.4034 m. The run has the box bob with a period of
+about 0.8 s, each swing smaller than the last, and settle at 0.404 m. With all six directions free the
+same box stays upright (it tilts by less than 2°) and floats at the same depth.
+
+![Floating box](docs/images/Floating.png)
+
+The sluice-gate example lifts a gate by 0.1 m in half a second. The bottom edge of the gate in the saved
+meshes is at 0.100 m before the lift, about 0.160 m three fifths of the way through and 0.200 m
+afterwards, while the bed stays exactly where it was. It runs the same on one processor and on two.
+
+![Lifting gate](docs/images/Gate.png)
+
+What to know about moving shapes:
+
+- The mesh stretches to follow a shape; no cells are added or removed. Keep a movement well below the
+  gap to the nearest wall. A gate can open further or close part of the way, but not shut completely,
+  and a floating body cannot roll over.
+- Water placed as a box fills whole cells, so the starting water level lands on the nearest layer of
+  cells. For a floating body, choose the cell height so that the water level falls between two layers
+  (the example uses 4 cm cells and a level of 0.40 m).
+- A floating body starts at rest where it is drawn. Bodies that float and shapes with a set motion
+  cannot be mixed in one run yet.
 
 ## How a case is laid out
 

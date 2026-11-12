@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from easyfoam.casegen import mesh as _mesh
+from easyfoam.casegen import motion as _motion
 from easyfoam.casegen import setup as _setup
 from easyfoam.foam.boundaryfile import Patch
 from easyfoam.foam.dictfmt import foam_file
@@ -48,7 +49,7 @@ def mesh_files(project: Project, case_dir: Path | None = None) -> dict[str, str]
     return files
 
 
-def setup_files(project: Project, patches: Sequence[Patch]) -> dict[str, str]:
+def setup_files(project: Project, patches: Sequence[Patch], case_dir: Path | None = None) -> dict[str, str]:
     """Files needed to run the solver on an existing mesh with the given patches."""
     files = _system(project, patches)
     files["system/decomposeParDict"] = foam_file(
@@ -76,9 +77,12 @@ def setup_files(project: Project, patches: Sequence[Patch]) -> dict[str, str]:
     options = _setup.fv_options(project)
     if options is not None:
         files["constant/fvOptions"] = foam_file("dictionary", "fvOptions", options, location="constant")
-    moving = _setup.dynamic_mesh_dict(project)
+    moving = _setup.dynamic_mesh_dict(project, patches, case_dir)
     if moving is not None:
         files["constant/dynamicMeshDict"] = foam_file("dictionary", "dynamicMeshDict", moving, location="constant")
+    displacement = _motion.point_displacement(project, patches)
+    if displacement is not None:
+        files["0/pointDisplacement"] = foam_file(displacement[0], "pointDisplacement", displacement[1], location="0")
     for name, (cls, data) in _setup.field_dicts(project, patches).items():
         files[f"0/{name}"] = foam_file(cls, name, data, location="0")
     return files

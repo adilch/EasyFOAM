@@ -55,6 +55,8 @@ easyfoam/
   casegen/
     mesh.py           blockMeshDict, snappyHexMeshDict, surfaceFeatureExtractDict
     setup.py          0/ fields, fvSchemes, fvSolution, controlDict, properties
+    freesurface.py    water and air: fields, gravity, waves, refinement at the surface
+    motion.py         moving shapes: dynamicMeshDict, pointDisplacement, solver extras
     __init__.py       file sets, writing, cleaning
   runtime.py          where OpenFOAM is and how to launch it (WSL / native)
   pipeline.py         prepare_mesh / prepare_run, Job (run, stream, stop)
@@ -75,6 +77,23 @@ Rules that keep it testable:
   default from their type and name.
 - The GUI never builds dictionaries itself; it edits the project and calls
   `pipeline`.
+
+## Moving shapes
+
+A motion belongs to a shape (`Shape.motion`), not to a boundary, because the
+user thinks "this gate lifts", and the shape's boundaries are found by name
+after meshing. Both kinds keep the mesh in one piece and deform it:
+
+- a set motion (move, swing) uses the `displacementLaplacian` motion solver
+  with the shape's displacement given over time in `0/pointDisplacement`;
+- a floating body uses `rigidBodyMotion`: its mass, centre and inertia come
+  from `geometry.mass_properties`, the mesh moves rigidly with the body close
+  to it and not at all beyond a distance that is kept inside the nearest wall.
+
+The solver's own report of the body (centre and orientation, each time step) is
+read by `LogParser` and drives the Motion plot, so no extra function object is
+needed. Overset meshes would lift the limits on how far things can move; they
+are left for later because they need a second mesh per body.
 
 ## Adding a solver
 

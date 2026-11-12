@@ -102,6 +102,18 @@ KIND_HINTS = {
     "constraint": "This condition is fixed by the patch type chosen in the mesh.",
 }
 FACE_TYPES = ("patch", "wall", "symmetry", "empty")
+MOTION_LABELS = {
+    "none": "Fixed (does not move)",
+    "move": "Moves to a new position",
+    "oscillate": "Swings back and forth",
+    "floating": "Floats (moved by the water)",
+}
+MOTION_TAGS = {"move": "moves", "oscillate": "swings", "floating": "floats"}
+FREEDOM_LABELS = {
+    "heave": "Up and down only",
+    "plane": "In the x–z plane (slide, rise, pitch)",
+    "free": "All six directions",
+}
 
 
 def _hint(text: str) -> QLabel:
@@ -206,6 +218,37 @@ class GeometryPanel(Panel):
         self.near_distance.setToolTip("Cells closer to the surface than this distance are refined to the level below.")
         self.region_level.setToolTip("Refinement of all cells inside this region. Each level halves the base cell size.")
 
+        self.motion_kind = QComboBox()
+        for key, label in MOTION_LABELS.items():
+            self.motion_kind.addItem(label, key)
+        self.motion_displacement = VectorEdit((0, 0, 0.1))
+        self.motion_start = FloatEdit(0.0)
+        self.motion_duration = FloatEdit(1.0)
+        self.motion_amplitude = VectorEdit((0, 0, 0.05))
+        self.motion_period = FloatEdit(2.0)
+        self.motion_density = FloatEdit(500.0)
+        self.motion_freedom = QComboBox()
+        for key, label in FREEDOM_LABELS.items():
+            self.motion_freedom.addItem(label, key)
+        self.motion_mass = _hint("")
+        self.motion_kind.setToolTip(
+            "A gate that opens, a paddle that swings, or a body that floats. The mesh stretches to follow "
+            "the shape, so keep the movement well below the gap to the nearest wall: a gate can open "
+            "further or close part of the way, but it cannot shut completely."
+        )
+        self.motion_displacement.setToolTip("Where the shape ends up, measured from where it is drawn.")
+        self.motion_start.setToolTip("The shape stays where it is until this time.")
+        self.motion_duration.setToolTip("The shape moves at a steady speed for this long and then stays put.")
+        self.motion_amplitude.setToolTip("The furthest the shape swings to either side of where it is drawn.")
+        self.motion_period.setToolTip("Time for one full swing there and back.")
+        self.motion_density.setToolTip(
+            "Mass of the body per volume. Below the density of water (about 1000) it floats, above it sinks."
+        )
+        self.motion_freedom.setToolTip(
+            "Which movements the body is free to make. Fewer is quicker and steadier: "
+            "'up and down only' suits a first look at how deep a body floats."
+        )
+
         self.form = QFormLayout()
         self.form.addRow("Use as", self.role)
         self.form.addRow("Centre", self.centre)
@@ -220,6 +263,15 @@ class GeometryPanel(Panel):
         self.form.addRow("Refinement inside", self.region_level)
         self.form.addRow("Also refine within [m]", self.near_distance)
         self.form.addRow("… to level", self.near_level)
+        self.form.addRow("Motion", self.motion_kind)
+        self.form.addRow("Moves by [m]", self.motion_displacement)
+        self.form.addRow("Starts at [s]", self.motion_start)
+        self.form.addRow("Takes [s]", self.motion_duration)
+        self.form.addRow("Swings by [m]", self.motion_amplitude)
+        self.form.addRow("Period [s]", self.motion_period)
+        self.form.addRow("Density [kg/m³]", self.motion_density)
+        self.form.addRow("Free to move", self.motion_freedom)
+        self.form.addRow(self.motion_mass)
         self.form.addRow(self.regions)
         self.details = QGroupBox("Selected shape")
         self.details.setLayout(self.form)
@@ -244,6 +296,20 @@ class GeometryPanel(Panel):
         self.region_level.valueChanged.connect(lambda v: self._set("region_level", v))
         self.near_distance.changed.connect(lambda v: self._set("near_distance", v))
         self.near_level.valueChanged.connect(lambda v: self._set("near_level", v))
+        self.motion_kind.currentIndexChanged.connect(
+            lambda: self._set_motion("kind", self.motion_kind.currentData(), refresh=True)
+        )
+        self.motion_displacement.changed.connect(
+            lambda: self._set_motion("displacement", self.motion_displacement.value())
+        )
+        self.motion_start.changed.connect(lambda v: self._set_motion("start", v))
+        self.motion_duration.changed.connect(lambda v: self._set_motion("duration", v))
+        self.motion_amplitude.changed.connect(lambda: self._set_motion("amplitude", self.motion_amplitude.value()))
+        self.motion_period.changed.connect(lambda v: self._set_motion("period", v))
+        self.motion_density.changed.connect(lambda v: self._set_motion("density", v))
+        self.motion_freedom.currentIndexChanged.connect(
+            lambda: self._set_motion("freedom", self.motion_freedom.currentData())
+        )
 
     # -- model <-> widgets
     def load(self, project: Project, case_dir: Path | None) -> None:
@@ -254,19 +320,54 @@ class GeometryPanel(Panel):
         with self.loading():
             self.shape_list.clear()
             for shape in self.project.shapes:
-                kind = "STL surface" if shape.kind == "stl" else shape.kind
                 self.shape_list.addItem(
-                    QListWidgetItem(icon(SHAPE_ICONS.get(shape.kind, "shapes")), f"{shape.name}   ({kind})")
+                    QListWidgetItem(icon(SHAPE_ICONS.get(shape.kind, "shapes")), self._list_text(shape))
                 )
             if self.project.shapes:
                 self.shape_list.setCurrentRow(max(0, min(select, len(self.project.shapes) - 1)))
         self._show_shape(self.shape_list.currentRow())
+
+    @staticmethod
+    def _list_text(shape: Shape) -> str:
+        kind = "STL surface" if shape.kind == "stl" else shape.kind
+        tag = MOTION_TAGS.get(shape.motion.kind) if shape.role == "wall" else None
+        return f"{shape.name}   ({kind}, {tag})" if tag else f"{shape.name}   ({kind})"
 
     def selected(self) -> Shape | None:
         row = self.shape_list.currentRow()
         if self.project is None or not 0 <= row < len(self.project.shapes):
             return None
         return self.project.shapes[row]
+
+    def _set_motion(self, attribute: str, value, refresh: bool = False) -> None:
+        shape = self.selected()
+        if shape is None:
+            return
+        self.apply(lambda: setattr(shape.motion, attribute, value))
+        if self._loading:
+            return
+        self.shape_list.item(self.shape_list.currentRow()).setText(self._list_text(shape))
+        if refresh:
+            self._show_shape(self.shape_list.currentRow())
+        else:
+            self._show_mass(shape)
+
+    def _show_mass(self, shape: Shape) -> None:
+        """Tell the user what a floating body weighs, so a wrong density or size is noticed early."""
+        if shape.role != "wall" or shape.motion.kind != "floating" or shape.motion.density <= 0:
+            self.motion_mass.setText("")
+            return
+        try:
+            mass, _centre, _inertia = geometry.mass_properties(
+                shape, self.case_dir or Path("."), shape.motion.density
+            )
+        except (ValueError, OSError) as exc:
+            self.motion_mass.setText(str(exc))
+            return
+        self.motion_mass.setText(
+            f"Mass {mass:.3g} kg (volume {mass / shape.motion.density:.3g} m³). "
+            "The body starts at rest where it is drawn."
+        )
 
     def _show_shape(self, _row: int) -> None:
         shape = self.selected()
@@ -289,9 +390,29 @@ class GeometryPanel(Panel):
             self.region_level.setValue(shape.region_level)
             self.near_distance.set_value(shape.near_distance)
             self.near_level.setValue(shape.near_level)
+            motion = shape.motion
+            self.motion_kind.setCurrentIndex(max(0, self.motion_kind.findData(motion.kind)))
+            self.motion_displacement.set_value(motion.displacement)
+            self.motion_start.set_value(motion.start)
+            self.motion_duration.set_value(motion.duration)
+            self.motion_amplitude.set_value(motion.amplitude)
+            self.motion_period.set_value(motion.period)
+            self.motion_density.set_value(motion.density)
+            self.motion_freedom.setCurrentIndex(max(0, self.motion_freedom.findData(motion.freedom)))
             self._fill_regions(shape)
         is_wall = shape.role == "wall"
+        moves = shape.motion.kind if is_wall else "none"
+        self._show_mass(shape)
         visible = {
+            self.motion_kind: is_wall,
+            self.motion_displacement: moves == "move",
+            self.motion_start: moves == "move",
+            self.motion_duration: moves == "move",
+            self.motion_amplitude: moves == "oscillate",
+            self.motion_period: moves == "oscillate",
+            self.motion_density: moves == "floating",
+            self.motion_freedom: moves == "floating",
+            self.motion_mass: moves == "floating",
             self.role: shape.kind != "stl",
             self.centre: shape.kind == "sphere",
             self.radius: shape.kind in ("sphere", "cylinder"),

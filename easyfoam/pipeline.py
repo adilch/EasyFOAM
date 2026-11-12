@@ -188,10 +188,10 @@ def prepare_run(case_dir: Path, project: Project, resume: bool = False) -> list[
     if resume:
         if not computed_times(case_dir):
             raise RuntimeError("There is nothing to continue from - run the simulation first.")
-        files = {k: v for k, v in casegen.setup_files(project, patches).items() if not k.startswith("0/")}
+        files = {k: v for k, v in casegen.setup_files(project, patches, case_dir).items() if not k.startswith("0/")}
         casegen.write_files(case_dir, files)
         decomposed = any(d.is_dir() and d.name.startswith("processor") for d in case_dir.iterdir())
         return casegen.run_steps(project, resume=True, decomposed=decomposed)
     casegen.clean_results(case_dir)
-    casegen.write_files(case_dir, casegen.setup_files(project, patches))
+    casegen.write_files(case_dir, casegen.setup_files(project, patches, case_dir))
     return casegen.run_steps(project)

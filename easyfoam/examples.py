@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from easyfoam.model import BaseFace, Boundary, Project, Shape
+from easyfoam.model import BaseFace, Boundary, Motion, Project, Shape
 
 
 def empty(name: str) -> Project:
@@ -148,6 +148,54 @@ def waves(name: str) -> Project:
     return p
 
 
+def gate(name: str) -> Project:
+    """A sluice gate lifts by 0.1 m and lets the water held behind it run out underneath (a thin slice)."""
+    p = Project(name=name)
+    base = p.mesh.base
+    base.min, base.max, base.cells = [0, 0, 0], [3, 0.1, 1], [60, 2, 20]
+    base.faces["xMin"] = base.faces["xMax"] = BaseFace("ends", "wall")
+    base.faces["yMin"] = base.faces["yMax"] = BaseFace("sides", "patch")
+    base.faces["zMin"] = BaseFace("bed", "wall")
+    base.faces["zMax"] = BaseFace("atmosphere", "patch")
+    _water(p)
+    p.physics.turbulence = "laminar"
+    p.physics.water_regions = [[0, 0, 0, 1.5, 0.1, 0.5]]
+    p.boundaries["atmosphere"] = Boundary(kind="atmosphere")
+    lift = Motion(kind="move", displacement=[0.0, 0.0, 0.1], start=0.1, duration=0.5)
+    p.shapes.append(
+        Shape("gate", kind="box", min=[1.5, -1, 0.1], max=[1.6, 2, 0.8], level_min=0, level_max=0, motion=lift)
+    )
+    run = p.run
+    run.end_time, run.delta_t, run.write_interval, run.max_courant, run.processors = 2.0, 0.001, 0.1, 0.5, 2
+    return p
+
+
+def floating(name: str) -> Project:
+    """A flat box half as dense as water is released 3 cm too high and bobs until it floats at rest.
+
+    The box is 0.3 x 0.3 x 0.12 m, so it floats 6 cm deep with its centre at the water surface.
+    """
+    p = Project(name=name)
+    base = p.mesh.base
+    # 4 cm cells, so that the still-water level (0.4 m) lies exactly between two layers of cells
+    base.min, base.max, base.cells = [0, 0, 0], [1.0, 0.8, 0.8], [25, 20, 20]
+    for face in ("xMin", "xMax", "yMin", "yMax"):
+        base.faces[face] = BaseFace("walls", "wall")
+    base.faces["zMin"] = BaseFace("bed", "wall")
+    base.faces["zMax"] = BaseFace("atmosphere", "patch")
+    _water(p)
+    p.physics.turbulence = "laminar"
+    p.physics.water_regions = [[0, 0, 0, 1.0, 0.8, 0.4]]
+    p.boundaries["atmosphere"] = Boundary(kind="atmosphere")
+    bob = Motion(kind="floating", density=500.0, freedom="heave")
+    p.shapes.append(
+        Shape("box", kind="box", min=[0.35, 0.25, 0.37], max=[0.65, 0.55, 0.49], level_min=1, level_max=1, motion=bob)
+    )
+    run = p.run
+    run.end_time, run.delta_t, run.write_interval, run.max_courant, run.processors = 4.0, 0.001, 0.1, 0.5, 4
+    return p
+
+
 EXAMPLES: dict[str, Callable[[str], Project]] = {
     "empty": empty,
     "sphere": sphere,
@@ -156,4 +204,6 @@ EXAMPLES: dict[str, Callable[[str], Project]] = {
     "dambreak": dambreak,
     "weir": weir,
     "waves": waves,
+    "gate": gate,
+    "floating": floating,
 }

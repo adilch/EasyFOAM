@@ -69,8 +69,12 @@ EXAMPLE_LABELS = {
     "weir": "Example: flow over a weir (free surface)",
     "dambreak": "Example: dam break (free surface)",
     "waves": "Example: waves in a flume (free surface)",
+    "gate": "Example: lifting sluice gate (moving shape)",
+    "floating": "Example: floating box (moved by the water)",
     "cavity": "Example: lid-driven cavity",
 }
+MESH_MOTION_RESIDUALS = ("pcorr", "cellDisplacement")
+NO_MOTION_TEXT ="Give a shape a motion in the Geometry step to follow it here."
 RESIDUAL_COLOURS = ["#4c78a8", "#f58518", "#54a24b", "#e45756", "#b279a2", "#72b7b2", "#9d755d", "#eeca3b"]
 _CELLS = re.compile(r"^\s*cells:\s+(\d+)")
 MAX_LOG_BLOCKS = 20000
@@ -213,6 +217,11 @@ class MainWindow(QMainWindow):
         self.flow_label = QLabel("List boundaries under Discharge in the Run step to record the flow through them.")
         self.force_plot = None
         self.force_label = QLabel("Switch on the force monitor in the Run step to see drag and lift here.")
+        self.motion_plot = None
+        self.rotation_plot = None
+        self.motion_label = QLabel(NO_MOTION_TEXT)
+        self._motion_curves: dict = {}
+        self._rotation_curves: dict = {}
         self.bottom = QTabWidget()
         try:
             import pyqtgraph as pg
@@ -256,6 +265,27 @@ class MainWindow(QMainWindow):
             flow_layout.addWidget(self.flow_label)
             flow_layout.addWidget(self.flow_plot, 1)
             self.bottom.addTab(flow_holder, "Discharge")
+            self.motion_plot = pg.PlotWidget()
+            self.rotation_plot = pg.PlotWidget()
+            for plot, label in (
+                (self.motion_plot, "Moved [m]"),
+                (self.rotation_plot, "Turned [°]"),
+            ):
+                plot.getAxis("left").enableAutoSIPrefix(False)  # plain numbers in the stated unit
+                plot.showGrid(x=True, y=True, alpha=0.25)
+                plot.setLabel("left", label)
+                plot.setLabel("bottom", "Time [s]")
+                plot.addLegend(offset=(-10, 10))
+            self.rotation_plot.hide()  # shown once a floating body turns
+            motion_holder = QWidget()
+            motion_layout = QVBoxLayout(motion_holder)
+            motion_layout.setContentsMargins(6, 4, 0, 0)
+            motion_layout.addWidget(self.motion_label)
+            motion_plots = QHBoxLayout()
+            motion_plots.addWidget(self.motion_plot, 1)
+            motion_plots.addWidget(self.rotation_plot, 1)
+            motion_layout.addLayout(motion_plots, 1)
+            self.bottom.addTab(motion_holder, "Motion")
         except ImportError:  # the window still works without live plots
             pass
         self.bottom.addTab(self.log, "Log")
@@ -317,7 +347,7 @@ class MainWindow(QMainWindow):
         file_menu = self.menuBar().addMenu("&File")
         file_menu.addAction(self.new_action)
         examples = file_menu.addMenu(icon("book-open"), "New from example")
-        for key in ("sphere", "pipe", "cavity", "weir", "dambreak", "waves"):
+        for key in ("sphere", "pipe", "cavity", "weir", "dambreak", "waves", "gate", "floating"):
             examples.addAction(icon(EXAMPLE_CARDS[key][0]), EXAMPLE_LABELS[key],
                                lambda k=key: self._new_project_dialog(k))  # fmt: skip
         file_menu.addAction(self.open_action)
@@ -876,6 +906,13 @@ class MainWindow(QMainWindow):
         self._flow_curves = {}
         if self.flow_plot is not None:
             self.flow_plot.clear()
+        self._motion_curves = {}
+        self._rotation_curves = {}
+        if self.motion_plot is not None:
+            self.motion_plot.clear()
+            self.rotation_plot.clear()
+            self.rotation_plot.hide()
+            self.motion_label.setText(NO_MOTION_TEXT)
 
     def _update_forces(self) -> None:
         """Refresh the force-coefficient plot and the drag / lift read-out."""
@@ -962,12 +999,67 @@ class MainWindow(QMainWindow):
             return
         self._update_plot(parser)
 
+    def _update_motion(self, parser) -> None:
+        """Refresh the Motion tab: where each moving shape is, and how far a floating body has turned.
+
+        A floating body is followed from what the solver reports; a shape with a set motion is
+        drawn from its settings, at the times the run has reached.
+        """
+        if self.motion_plot is None or self.project is None:
+            return
+        import pyqtgraph as pg
+
+        from easyfoam.casegen.motion import displacement_at, moving_shapes
+
+        def draw(plot, curves, name, times, values):
+            if name not in curves:
+                pen = pg.mkPen(RESIDUAL_COLOURS[len(curves) % len(RESIDUAL_COLOURS)], width=2)
+                curves[name] = plot.plot(name=name, pen=pen)
+            curves[name].setData(times, values)
+
+        notes = []
+        for shape in moving_shapes(self.project):
+            turned: list[list[float]] = []
+            if shape.motion.kind == "floating":
+                track = list(parser.body_positions.get(shape.name, []))
+                if not track:
+                    continue
+                times = [t for t, _ in track]
+                start = track[0][1]
+                moved = [[p[axis] - start[axis] for axis in range(3)] for _, p in track]
+                rotations = list(parser.body_rotations.get(shape.name, []))[: len(track)]
+                turned = [angles for _, angles in rotations]
+                centre = ", ".join(f"{c:.4g}" for c in track[-1][1])
+                notes.append(f"{shape.name}: centre at ({centre}) m")
+            else:
+                times = list(parser.times)
+                if not times:
+                    continue
+                moved = [displacement_at(shape.motion, t) for t in times]
+                notes.append(f"{shape.name}: moved ({', '.join(f'{c:.4g}' for c in moved[-1])}) m")
+            for axis, letter in enumerate("xyz"):
+                values = [m[axis] for m in moved]
+                name = f"{shape.name} {letter}"
+                if name in self._motion_curves or max(abs(v) for v in values) > 1e-9:
+                    draw(self.motion_plot, self._motion_curves, name, times, values)
+            for axis, word in enumerate(("roll", "pitch", "yaw")):
+                values = [angles[axis] for angles in turned]
+                name = f"{shape.name} {word}"
+                if values and (name in self._rotation_curves or max(abs(v) for v in values) > 1e-6):
+                    draw(self.rotation_plot, self._rotation_curves, name, times[: len(values)], values)
+        if notes:
+            self.motion_label.setText("    ".join(notes) + f"    (at {parser.times[-1]:g} s)")
+        self.rotation_plot.setVisible(bool(self._rotation_curves))
+
     def _update_plot(self, parser) -> None:
         if self.plot is None:
             return
         import pyqtgraph as pg
 
+        self._update_motion(parser)
         for name, points in list(parser.residuals.items()):
+            if name.startswith(MESH_MOTION_RESIDUALS):
+                continue  # bookkeeping of a moving mesh, not a sign of how well the flow is solved
             points = [(t, r) for t, r in list(points) if r > 0]
             if not points:
                 continue

@@ -111,6 +111,41 @@ def project_issues(project: Project, patches: Sequence[Patch], has_mesh: bool) -
                       "Nothing drives the flow yet: give an inlet a velocity or a wall a motion.")  # fmt: skip
             )
 
+    moving = [s for s in project.shapes if s.role == "wall" and s.motion.kind != "none"]
+    if moving:
+        spec = SOLVERS.get(project.physics.solver)
+        if spec is not None and spec.steady:
+            issues.append(
+                Issue("Physics", "error", "Moving shapes need a transient flow type: choose one in the Physics step.")
+            )
+        floating = [s for s in moving if s.motion.kind == "floating"]
+        if floating and not multiphase:
+            issues.append(
+                Issue("Physics", "error", "A floating body needs a free-surface flow type (water and air).")
+            )
+        if floating and len(floating) < len(moving):
+            issues.append(
+                Issue("Geometry", "error",
+                      "A floating body and a shape with a set motion cannot be combined in one run: "
+                      "let the shapes all float, or give them all a set motion.")  # fmt: skip
+            )
+        for shape in moving:
+            motion = shape.motion
+            if motion.kind == "move" and motion.duration <= 0:
+                issues.append(
+                    Issue("Geometry", "error", f"The move of '{shape.name}' must take some time: set how long it takes.")
+                )
+            if motion.kind == "oscillate" and motion.period <= 0:
+                issues.append(Issue("Geometry", "error", f"The period of '{shape.name}' must be above zero."))
+            if motion.kind == "floating" and motion.density <= 0:
+                issues.append(Issue("Geometry", "error", f"The density of '{shape.name}' must be above zero."))
+        if project.physics.adaptive_levels > 0:
+            issues.append(
+                Issue("Physics", "error",
+                      "Moving shapes and mesh refinement at the water surface cannot be combined: "
+                      "set the refinement levels to 0.")  # fmt: skip
+            )
+
     run = project.run
     steady = SOLVERS[project.physics.solver].steady if project.physics.solver in SOLVERS else True
     if run.end_time <= 0:

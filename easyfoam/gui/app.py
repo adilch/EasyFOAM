@@ -40,6 +40,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tab", help="bottom tab to show (Residuals, Forces, Log)")
     parser.add_argument("--field", help="result quantity to show")
     parser.add_argument("--mode", help="result display: slice, surface, water or mesh")
+    parser.add_argument("--time", type=float, help="saved time to show (the nearest one is taken)")
     parser.add_argument("--snapshot", help="save a picture of the window to this file and quit")
     parser.add_argument("--delay", type=int, default=2500, help="milliseconds to wait before --snapshot")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
@@ -65,6 +66,11 @@ def main(argv: list[str] | None = None) -> int:
             window.statusBar().showMessage(f"{case} has no {PROJECT_FILE}")
     if args.step and args.step in STEPS:
         window.steps.setCurrentRow(STEPS.index(args.step))
+    if args.time is not None:
+        times = window.results_panel.time
+        saved = [times.itemData(i) for i in range(times.count())]
+        if saved:
+            times.setCurrentIndex(min(range(len(saved)), key=lambda i: abs(saved[i] - args.time)))
     if args.field:
         window.results_panel.select_field(args.field, args.mode)
     if args.tab:

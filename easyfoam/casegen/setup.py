@@ -6,7 +6,7 @@ import math
 import re
 from collections.abc import Sequence
 
-from easyfoam.casegen import freesurface
+from easyfoam.casegen import freesurface, motion
 from easyfoam.foam.boundaryfile import Patch
 from easyfoam.model import Boundary, Project
 from easyfoam.runtime import Step
@@ -161,6 +161,7 @@ def field_dicts(project: Project, patches: Sequence[Patch]) -> dict[str, tuple[s
                 },
             },
         )
+    motion.apply_wall_velocity(project, patches, out)
     out.update(tracer_fields(project, patches, boundaries))
     return out
 
@@ -379,7 +380,7 @@ def fv_schemes(project: Project) -> dict:
     }
 
 
-def fv_solution(project: Project) -> dict:
+def _fv_solution(project: Project) -> dict:
     tracer_solver = {"solver": "smoothSolver", "smoother": "symGaussSeidel", "tolerance": 1e-08, "relTol": 0.01}
     if solver_spec(project.physics.solver).multiphase:
         solution = freesurface.fv_solution(project)
@@ -457,7 +458,15 @@ def fv_options(project: Project) -> dict | None:
     }
 
 
-def dynamic_mesh_dict(project: Project) -> dict | None:
+def fv_solution(project: Project) -> dict:
+    return motion.extend_solution(project, _fv_solution(project))
+
+
+def dynamic_mesh_dict(project: Project, patches: Sequence[Patch] = (), case_dir=None) -> dict | None:
+    """Settings for a mesh that changes during the run: moving shapes, or refinement at the water surface."""
+    moving = motion.dynamic_mesh_dict(project, patches, case_dir)
+    if moving is not None:
+        return moving
     if not solver_spec(project.physics.solver).multiphase:
         return None
     return freesurface.dynamic_mesh_dict(project)

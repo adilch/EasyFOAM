@@ -34,6 +34,20 @@ def _vec(x: float, y: float, z: float):
 
 
 @dataclass
+class Motion:
+    """How a shape moves during the run."""
+
+    kind: str = "none"  # none | move (to a new position) | oscillate | floating (moved by the flow)
+    displacement: list[float] = _vec(0, 0, 0.1)  # move: where it ends up, relative to the start [m]
+    start: float = 0.0  # move: when it starts [s]
+    duration: float = 1.0  # move: how long it takes [s]
+    amplitude: list[float] = _vec(0, 0, 0.05)  # oscillate [m]
+    period: float = 2.0  # oscillate [s]
+    density: float = 500.0  # floating: density of the body [kg/m3]
+    freedom: str = "heave"  # floating: heave (up and down) | plane (x, z and pitch) | free (all six)
+
+
+@dataclass
 class Shape:
     """A piece of geometry: an STL surface or a primitive."""
 
@@ -55,6 +69,7 @@ class Shape:
     near_level: int = 0  # ... to this level (0 = off)
     #: STL regions (solids) -> patch type; empty for single-solid surfaces
     regions: dict[str, str] = field(default_factory=dict)
+    motion: Motion = field(default_factory=Motion)
 
 
 @dataclass

@@ -59,7 +59,7 @@ current version, through WSL or natively), keeps **plain case folders** that
 remain usable by hand, and has no cell or core limits. That is the space
 EasyFOAM aims at. If that distinction does not matter to you, use BARAM.
 
-## Where EasyFOAM stands (v0.6)
+## Where EasyFOAM stands (v0.7)
 
 Legend: done = works and is tested end to end; partial; planned = see roadmap.
 
@@ -98,7 +98,11 @@ Legend: done = works and is tested end to end; partial; planned = see roadmap.
 | Cavitation index from free-surface results, with a plain-language verdict | done |
 | Discharge through boundaries and water depth at gauge points, with live plots | done |
 | Sharper interface solver (interIsoFoam) | done |
-| Moving gates and floating bodies (6DoF), cavitating flow solver, irregular waves | planned |
+| Moving shapes with a set motion: move to a new position (gates), swing back and forth | done |
+| Floating bodies moved by the water (6DoF): mass and inertia from shape and density; heave, in-plane or all six | done |
+| Live plot of where moving shapes are and how far a floating body has turned | done |
+| Hinged (rotating) gates, moorings and springs, large motion by overset meshes | planned |
+| Cavitating flow solver, irregular waves | planned |
 | Sediment, air entrainment | planned |
 | Boundary presets: velocity inlet, pressure outlet, wall, moving wall, slip, symmetry/empty | done |
 | Wider boundary-condition library, time tables, profiles | planned |

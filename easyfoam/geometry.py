@@ -347,3 +347,41 @@ def rename_shape(project: Project, old: str, new: str) -> str:
     project.boundaries = {moved(name): value for name, value in project.boundaries.items()}
     project.forces.patches = [moved(name) for name in project.forces.patches]
     return new
+
+
+def mass_properties(shape: Shape, case_dir: Path, density: float) -> tuple[float, list[float], list[float]]:
+    """Mass, centre of mass and moments of inertia (about the x, y, z axes through the centre) of a solid shape."""
+    if shape.kind == "box":
+        a, b, c = (hi - lo for lo, hi in zip(shape.min, shape.max))
+        mass = density * a * b * c
+        centre = [(lo + hi) / 2 for lo, hi in zip(shape.min, shape.max)]
+        return mass, centre, [mass / 12 * (b * b + c * c), mass / 12 * (a * a + c * c), mass / 12 * (a * a + b * b)]
+    if shape.kind == "sphere":
+        mass = density * 4.0 / 3.0 * math.pi * shape.radius**3
+        return mass, list(shape.centre), [0.4 * mass * shape.radius**2] * 3
+    if shape.kind == "cylinder":
+        p1, p2 = np.asarray(shape.point1, float), np.asarray(shape.point2, float)
+        length = float(np.linalg.norm(p2 - p1))
+        axis = (p2 - p1) / length
+        mass = density * math.pi * shape.radius**2 * length
+        along = 0.5 * mass * shape.radius**2
+        across = mass / 12 * (3 * shape.radius**2 + length**2)
+        inertia = [across * (1 - a * a) + along * a * a for a in axis]
+        return mass, ((p1 + p2) / 2).tolist(), [float(i) for i in inertia]
+
+    triangles = stl_triangles(Path(case_dir) / "constant" / "triSurface" / shape.file)
+    if _open_edges(triangles):
+        raise ValueError(f"'{shape.name}' is not a closed surface, so its mass cannot be worked out")
+    origin = triangles.reshape(-1, 3).mean(axis=0)
+    a, b, c = (triangles[:, i] - origin for i in range(3))
+    volumes = np.einsum("ij,ij->i", a, np.cross(b, c)) / 6.0  # signed tetrahedra to the origin
+    volume = float(volumes.sum())
+    sign = 1.0 if volume > 0 else -1.0
+    volume, volumes = abs(volume), volumes * sign
+    centroid = ((a + b + c) / 4.0 * volumes[:, None]).sum(axis=0) / volume
+    total = a + b + c
+    second = sum(np.einsum("n,ni,nj->ij", volumes, v, v) for v in (a, b, c)) + np.einsum("n,ni,nj->ij", volumes, total, total)
+    second = second / 20.0 - volume * np.outer(centroid, centroid)  # about the centroid
+    xx, yy, zz = second[0, 0], second[1, 1], second[2, 2]
+    inertia = [density * (yy + zz), density * (xx + zz), density * (xx + yy)]
+    return density * volume, (origin + centroid).tolist(), [float(i) for i in inertia]
