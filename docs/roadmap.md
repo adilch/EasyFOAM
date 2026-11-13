@@ -127,7 +127,7 @@ Open items:
 Open items: tutorials for non-Newtonian fluids, the tracer, the tailwater outlet and CAD (STEP)
 import; a search box; translations.
 
-## v0.8 - draw your own shapes (this version)
+## v0.8 - draw your own shapes (done)
 
 Done:
 
@@ -147,6 +147,59 @@ Open items:
 - Turning a box or a wedge (they follow the axes); revolving an outline about an axis.
 - Arcs and curves in the sketch (only straight sides for now); several outlines in one shape (holes).
 - Saving a drawn shape as an STL file for use elsewhere.
+
+## v0.9 - hydraulic results (done)
+
+- A long section of any free-surface result: the water fraction is integrated over vertical lines
+  across the channel at stations along its axis, which gives water level, depth, flow area, top width,
+  discharge, mean velocity, Froude number, specific energy, the energy line and the Coriolis coefficient.
+  Oscillating flows are averaged over several saved times.
+- Hydraulic jumps: the toe is found where the incoming jet ends (the velocity profile turns over), the
+  sequent depth and energy loss are compared with Bélanger, and the jump is classed (USBR). Control
+  sections are compared with critical depth.
+- Pressure along a structure and the force and overturning moment on it; bed shear stress and
+  sediment mobility (Shields).
+- Checked: a hydraulic jump below a sluice gate (sequent depth within 2 % of Bélanger when averaged,
+  gate force within 5 % of the momentum balance), critical depth on a weir crest.
+
+## v0.10 - roughness, hydrographs and rating curves (done)
+
+- Wall roughness from Manning's n or a sand-grain height (Strickler); checked in a rough channel against
+  the 1D backwater curve (effective n within 3 % of the n set).
+- Inflow hydrographs and tailwater levels as time tables. The tailwater is one expression on the
+  pressure, rho g (level - hRef) with the density beside each face: water feels the tailwater, air stays
+  at ambient, in serial and parallel runs alike. The inflow is spread over the wetted part of the inlet so
+  that exactly the water asked for comes in, however smeared the surface is there.
+- A rating-curve sweep: the inflow steps through discharges; head, weir coefficient and whether the
+  level settled are read off for each.
+
+## v0.11 - contact tanks and reacting tracers (done)
+
+- Several tracers with their own inlet concentrations, a first-order decay (chlorine residual) and the
+  age of the water.
+- A tracer test in the frozen steady flow, step or pulse: T10, T50, T90, mean residence time, baffling
+  factor with its EPA class, Morrill index, and the share of a decaying substance left at the outlet.
+- Checked in a contact-tank example: the outlet age and the mean residence time equal V/Q within
+  0.3 %, the tracer fed in balances what is left plus what has gone, nine baffles raise the baffling
+  factor from 0.19 to 0.51, and the steady chlorine residual matches the one from the residence times.
+- Lessons kept in the code: steady tracers are carried with upwind and never relaxed (relaxation and
+  limitedLinear left the age 8 % high or blew up a decaying tracer), and water drawn back in at an outlet
+  keeps its own concentration.
+
+## v0.12 - channels and terrain (this version)
+
+- A channel builder: rectangular, trapezoidal, compound or circular culvert sections, bed slope, and a
+  centreline of straight pieces and bends. blockMesh makes a mesh fitted to it (cells follow the banks
+  and bends); the starting water is a cell zone, and the long section follows the curved centreline.
+- Terrain from survey files: XYZ points, ESRI ASCII grids, GeoTIFF and LandXML TIN surfaces, moved to
+  local coordinates, turned so the river runs along x, resampled and closed into a solid that
+  snappyHexMesh cuts out of the base mesh.
+
+Open items:
+
+- Channels: transitions between sections, a different section per piece, drop structures built in.
+- Terrain: breaklines and building footprints; burning a surveyed channel into a coarser ground.
+- Long sections on terrain follow the axis of the base mesh; a centreline drawn on the map.
 
 ## Next for hydraulics
 

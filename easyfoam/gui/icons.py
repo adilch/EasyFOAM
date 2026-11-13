@@ -28,7 +28,8 @@ USED = (
     "circle-x", "circle-dashed", "info", "circle-help", "terminal", "refresh-cw", "calculator",
     "gauge", "crosshair", "locate-fixed", "arrow-right", "arrow-left", "wand", "ruler", "layers",
     "flow-body", "flow-pipe", "flow-cavity", "flow-weir", "flow-dam", "droplet", "book-open", "cpu",
-    "flow-gate", "flow-float", "shape-cone", "shape-wedge", "shape-outline", "draw",
+    "flow-gate", "flow-float", "shape-cone", "shape-wedge", "shape-outline", "draw", "force", "flow-jump",
+    "flow-tank", "timer", "chart-line", "flow-channel", "flow-terrain",
 )  # fmt: skip
 
 

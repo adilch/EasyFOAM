@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from easyfoam.drawn import problem as shape_problem
 from easyfoam.foam.boundaryfile import Patch
-from easyfoam.model import Project
+from easyfoam.model import Project, roughness_height
 from easyfoam.solvers import SOLVERS
 
 STEPS = ("Geometry", "Mesh", "Physics", "Boundaries", "Run", "Results")
@@ -75,7 +75,7 @@ def project_issues(project: Project, patches: Sequence[Patch], has_mesh: bool) -
         water_inlet = any(
             b.kind == "flowRateInlet" or (b.kind == "velocityInlet" and b.water_fraction > 0) for b in chosen
         )
-        if patches and not project.physics.water_regions and not water_inlet:
+        if patches and not _starting_water(project) and not water_inlet:
             issues.append(
                 Issue("Physics", "warning", "There is no water yet: add an initial water region or a water inlet.")
             )
@@ -104,12 +104,22 @@ def project_issues(project: Project, patches: Sequence[Patch], has_mesh: bool) -
             any(_moving(b.velocity) for b in chosen if b.kind in ("velocityInlet", "movingWall"))
             or any(b.flow_rate != 0 for b in chosen if b.kind == "flowRateInlet")
             or any(b.kind == "waveInlet" for b in chosen)
-            or (multiphase and bool(project.physics.water_regions))  # water falling under gravity
+            or (multiphase and _starting_water(project))  # water falling under gravity
         )
         if not driven:
             issues.append(
                 Issue("Boundaries", "warning",
                       "Nothing drives the flow yet: give an inlet a velocity or a wall a motion.")  # fmt: skip
+            )
+
+    rough = [p.name for p in patches if roughness_height(project.boundary_for(p.name, p.type)) > 0]
+    if rough:
+        model = project.physics.turbulence
+        if model == "laminar" or model == "kkLOmega" or project.physics.wall_treatment == "lowRe":
+            issues.append(
+                Issue("Boundaries", "warning",
+                      f"Roughness on {', '.join(rough)} is only taken into account with a turbulence model and "
+                      "wall functions (Physics step); it is ignored as set now.")  # fmt: skip
             )
 
     for shape in project.shapes:
@@ -183,7 +193,7 @@ def step_states(
 
     states = {
         "Geometry": StepState(
-            "done", _plural(len(project.shapes), "shape") if project.shapes else "Base mesh only"
+            "done", _geometry_summary(project)
         ),
         "Mesh": (
             StepState("done", f"{cells:,} cells" if cells else "Generated")
@@ -213,3 +223,17 @@ def step_states(
         if issue.level != "todo":
             states[step] = StepState(issue.level, issue.text)
     return states
+
+
+def _starting_water(project: Project) -> bool:
+    """Is there water in the domain at the start: water regions, or a built channel filled to a depth?"""
+    channel = project.channel
+    return bool(project.physics.water_regions) or (channel is not None and channel.water_depth > 0)
+
+
+def _geometry_summary(project: Project) -> str:
+    """What the Geometry step holds, in a few words."""
+    shapes = _plural(len(project.shapes), "shape") if project.shapes else ""
+    if project.channel is not None:
+        return f"{project.channel.section.capitalize()} channel" + (f", {shapes}" if shapes else "")
+    return shapes or "Base mesh only"

@@ -36,7 +36,11 @@ EXAMPLES = {
     "waves": ("waves", "Waves in a flume", "Wave maker and absorbing outlet"),
     "gate": ("flow-gate", "Lifting sluice gate", "A gate opens and the water runs out"),
     "floating": ("flow-float", "Floating box", "A body bobs until it floats at rest"),
+    "jump": ("flow-jump", "Hydraulic jump", "Below a sluice gate, checked against Bélanger"),
+    "tank": ("flow-tank", "Contact tank", "Baffles, water age and a T10 tracer test"),
 }
+#: the examples offered on the welcome page and in the File menu, in this order
+SHOWN = ("sphere", "pipe", "cavity", "weir", "dambreak", "waves", "gate", "floating", "jump", "tank")
 
 
 class WelcomePage(QWidget):
@@ -76,7 +80,7 @@ class WelcomePage(QWidget):
         self.example_buttons: dict[str, QPushButton] = {}
         cards = QGridLayout()
         cards.setSpacing(12)
-        for index, key in enumerate(("sphere", "pipe", "cavity", "weir", "dambreak", "waves", "gate", "floating")):
+        for index, key in enumerate(SHOWN):
             name, label, text = EXAMPLES[key]
             card = QPushButton(icon(name, ACCENT, 34), f"  {label}\n  {text}")
             card.setIconSize(QSize(34, 34))

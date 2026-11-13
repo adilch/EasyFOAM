@@ -100,6 +100,46 @@ class Driver:
         self.close_dialog()
         self.settle(0.6)
 
+    def open_channel(self, channel) -> None:
+        """Open the channel builder (without blocking), filled in as given, so that it can be pictured."""
+        from easyfoam.gui.channel_dialog import ChannelDialog
+
+        self.dialog = ChannelDialog(channel, self.w)
+        self.dialog.setModal(False)
+        self.dialog.show()
+        self.settle(0.5)
+
+    def build_channel(self) -> None:
+        """Press "Build the channel"."""
+        channel = self.dialog.channel()
+        self.close_dialog()
+        self.w.apply_channel(channel)
+        self.settle(0.8)
+
+    def open_terrain(self, path, origin, angle, region, spacing, cell, water, top, discharge) -> None:
+        """Open the terrain dialog (without blocking) on a survey, filled in as given, so that it can be pictured."""
+        from easyfoam.gui.terrain_dialog import TerrainDialog
+
+        self.dialog = TerrainDialog(path, self.w)
+        dlg = self.dialog
+        for edit, value in zip((dlg.origin_x, dlg.origin_y, dlg.angle), (*origin, angle)):
+            edit.set_value(value)
+        dlg._whole()
+        for edit, value in zip((dlg.x_from, dlg.y_from, dlg.x_to, dlg.y_to, dlg.spacing, dlg.cell_size, dlg.water,
+                                dlg.top, dlg.discharge), (*region, spacing, cell, water, top, discharge)):  # fmt: skip
+            edit.set_value(value)
+        dlg._update()
+        dlg.setModal(False)
+        dlg.show()
+        self.settle(0.6)
+
+    def use_terrain(self) -> None:
+        """Press "Use this ground"."""
+        ground, settings = self.dialog.ground(), self.dialog.settings()
+        self.close_dialog()
+        self.w.apply_terrain(ground, **settings)
+        self.settle(0.8)
+
     def close_dialog(self) -> None:
         if self.dialog is not None:
             self.dialog.close()

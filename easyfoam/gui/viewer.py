@@ -23,6 +23,12 @@ from easyfoam.results import CaseData  # noqa: E402
 
 PATCH_COLOURS = ["#4c78a8", "#f58518", "#54a24b", "#b279a2", "#e45756", "#72b7b2", "#9d755d", "#eeca3b"]
 SOLID = "#c8b99a"
+#: how the boundaries of a built channel are drawn
+CHANNEL_STYLE = {
+    "bed": {"color": "#8c6d46"}, "banks": {"color": "#9aa66a"}, "floodplain": {"color": "#b8c78f"},
+    "barrel": {"color": "#9aa3ad", "opacity": 0.45}, "atmosphere": {"color": "#9ecae1", "opacity": 0.12},
+    "inlet": {"color": "#3182bd", "opacity": 0.55}, "outlet": {"color": "#e6550d", "opacity": 0.55},
+}  # fmt: skip
 HIGHLIGHT = "#f59e0b"
 WATER_BLUE = "#3b82f6"
 VIEWS = {  # name -> (direction from the scene to the camera, up)
@@ -252,16 +258,19 @@ class Viewer(QWidget):
     def show_geometry(self, project: Project, case_dir: Path, on_point_moved=None, handles=None) -> None:
         fresh = self._begin("geometry")
         base = project.mesh.base
-        (x0, y0, z0), (x1, y1, z1) = base.min, base.max
-        box = pv.Box(bounds=(x0, x1, y0, y1, z0, z1))
-        self.plotter.add_mesh(box, style="wireframe", color="#44505c", line_width=1.5, reset_camera=False)
-        labels = {face: base.faces[face].name for face in FACES}
-        centres = _face_centres(base)
-        self.plotter.add_point_labels(
-            np.array([centres[f] for f in FACES]), [labels[f] for f in FACES],
-            font_size=11, text_color="#27313b", shape_opacity=0.55, shape_color="white",
-            point_size=1, always_visible=True, reset_camera=False,
-        )  # fmt: skip
+        if project.channel is not None:
+            self._show_channel(project.channel)
+        else:
+            (x0, y0, z0), (x1, y1, z1) = base.min, base.max
+            box = pv.Box(bounds=(x0, x1, y0, y1, z0, z1))
+            self.plotter.add_mesh(box, style="wireframe", color="#44505c", line_width=1.5, reset_camera=False)
+            labels = {face: base.faces[face].name for face in FACES}
+            centres = _face_centres(base)
+            self.plotter.add_point_labels(
+                np.array([centres[f] for f in FACES]), [labels[f] for f in FACES],
+                font_size=11, text_color="#27313b", shape_opacity=0.55, shape_color="white",
+                point_size=1, always_visible=True, reset_camera=False,
+            )  # fmt: skip
         missing = []
         for shape in project.shapes:
             surface = shape_surface(shape, case_dir)
@@ -297,6 +306,33 @@ class Viewer(QWidget):
         if missing:
             self.plotter.add_text("Cannot show yet: " + ", ".join(missing), font_size=10, color="#b33")
         self._end(fresh)
+
+    def _show_channel(self, ch) -> None:
+        """A built channel: its boundaries and the water in it at the start."""
+        from easyfoam import channel as chm
+
+        try:
+            parts = chm.preview(ch)
+        except (ValueError, ZeroDivisionError) as exc:
+            self.plotter.add_text(f"Cannot show the channel: {exc}", font_size=10, color="#b33")
+            return
+        caps = {}
+        for name, (points, cells) in parts.items():
+            faces = np.hstack([np.full((len(cells), 1), cells.shape[1]), cells]).ravel()
+            surface = pv.PolyData(np.asarray(points, float), faces)
+            self.plotter.add_mesh(surface, reset_camera=False, **CHANNEL_STYLE.get(name, {"color": SOLID}))
+            if name in ("inlet", "outlet"):
+                caps[name] = np.asarray(points)[cells[0]].mean(axis=0)
+        water = chm.water_surface(ch)
+        if water is not None:
+            points, cells = water
+            faces = np.hstack([np.full((len(cells), 1), 4), cells]).ravel()
+            self.plotter.add_mesh(pv.PolyData(points, faces), color="#4c8ed9", opacity=0.55, reset_camera=False)
+        if caps:
+            self.plotter.add_point_labels(
+                np.array(list(caps.values())), list(caps), font_size=11, text_color="#27313b", shape_opacity=0.55,
+                shape_color="white", point_size=1, always_visible=True, reset_camera=False,
+            )  # fmt: skip
 
     def _add_patches(self, data: CaseData, patch_types: Mapping[str, str], field: str | None, edges: bool):
         for index, (name, surface) in enumerate(data.patches.items()):

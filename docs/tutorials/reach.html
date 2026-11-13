@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A river reach from a survey — EasyFOAM tutorials</title>
+<meta name="description" content="Bring in the ground of a valley from an ESRI ASCII grid, turn it so the river runs along x, and send a flow down its meandering channel.">
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="25" cy="32" r="8"/><path d="M8 15h14c11 0 13 7 23 7h11M8 49h14c11 0 13-7 23-7h11M41 32h15"/></svg><span>EasyFOAM</span><span class="brand-sub">tutorials</span></a>
+  <nav>
+    <a href="../index.html">All tutorials</a>
+    <a href="../tutorials/getting-started.html">Install</a>
+  </nav>
+</header>
+<div class="layout">
+<aside class="contents">
+  <a class="back" href="../index.html">← All tutorials</a>
+  <p class="contents-title">Steps</p>
+  <ol>
+<li><a href="#step-1">An empty project</a></li>
+<li><a href="#step-2">Bring in the ground</a></li>
+<li><a href="#step-3">Where and what to model</a></li>
+<li><a href="#step-4">The ground</a></li>
+<li><a href="#step-5">A rough bed</a></li>
+<li><a href="#step-6">Mesh and run</a></li>
+<li><a href="#step-7">The river</a></li>
+<li><a href="#step-8">Long section of the reach</a></li>
+  </ol>
+</aside>
+<main class="tutorial">
+  <p class="crumb">Tutorial 15 of 15</p>
+  <h1>A river reach from a survey</h1>
+  <p class="lead">Bring in the ground of a valley from an ESRI ASCII grid, turn it so the river runs along x, and send a flow down its meandering channel.</p>
+  <div class="chips"><span class="chip">about 25 min</span><span class="chip level-intermediate">Intermediate</span><span class="chip topic">Free surface</span><span class="chip topic">Rivers</span><span class="chip topic">Terrain</span><span class="chip topic">Hydraulic results</span></div>
+  <p>River models start from the ground: a survey, a lidar grid or a terrain model. EasyFOAM reads XYZ points, ESRI ASCII grids, GeoTIFF elevation rasters and LandXML surfaces, moves them to small local coordinates, turns them so the river runs along x and closes the ground into a solid that the mesh is cut from. The water and the air are above it.</p>
+<p>In this tutorial you use a survey of a small valley, 150 m long, with a meandering channel about 1.2 m deep. Download it here: <a href="files/valley.asc">valley.asc</a>. Its coordinates are survey coordinates, half a million metres east and four million north.</p>
+  <div class="learn"><h3>What you will learn</h3><ul><li>read a survey file and see what it holds</li><li>choose the local origin, the direction of the river and the part to model</li><li>give the ground a Manning roughness</li><li>run the flow and draw the long section of the reach</li></ul><p class="run-time">Computer time: about a minute for the mesh and a minute for the run, on eight cores.</p></div>
+<section class="step" id="step-1">
+<h2><span class="step-number">1</span>An empty project</h2>
+<p>Start a new, empty project and call it <code>reach</code>.</p>
+<ol class="marks"><li>Type <code>reach</code>.</li><li>Click <strong>Create project</strong>.</li></ol>
+<figure><a href="img/reach/01.webp" class="zoom"><img src="img/reach/01.webp" alt="A river reach from a survey, step 1: An empty project" loading="lazy" width="650" height="225"></a></figure>
+</section>
+<section class="step" id="step-2">
+<h2><span class="step-number">2</span>Bring in the ground</h2>
+<p>In the <strong>Geometry</strong> step, press <strong>Terrain…</strong> and choose the file <strong>valley.asc</strong>.</p>
+<ol class="marks"><li>Press <strong>Terrain…</strong>.</li></ol>
+<figure><a href="img/reach/02.webp" class="zoom"><img src="img/reach/02.webp" alt="A river reach from a survey, step 2: Bring in the ground" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-3">
+<h2><span class="step-number">3</span>Where and what to model</h2>
+<p>The dialog says what the file holds: a 1 m grid, ground from 98.2 to 102 m. Put the local origin where the valley starts, at <strong>512000</strong>, <strong>4181000</strong>, and say the river flows <strong>30°</strong> north of east: the survey is turned so that it runs along x. Model <strong>5 to 155 m</strong> along it and <strong>30 m</strong> to each side. The water starts at <strong>99.3 m</strong>, which fills the channel, and <strong>4 m³/s</strong> come in.</p>
+<ol class="marks"><li><strong>Local origin</strong>: <code>512000</code>, <code>4181000</code>.</li><li><strong>River flows towards</strong>: <code>30</code> degrees.</li><li><strong>Region</strong>: x <code>5</code> to <code>155</code>, y <code>-30</code> to <code>30</code>.</li><li><strong>Initial water level</strong>: <code>99.3</code> m.</li><li><strong>Discharge</strong>: <code>4</code> m³/s.</li><li>Press <strong>Use this ground</strong>.</li></ol>
+<figure><a href="img/reach/03.webp" class="zoom"><img src="img/reach/03.webp" alt="A river reach from a survey, step 3: Where and what to model" loading="lazy" width="1250" height="800"></a></figure>
+</section>
+<section class="step" id="step-4">
+<h2><span class="step-number">4</span>The ground</h2>
+<p>The ground is now a shape called <strong>terrain</strong>, and the case is set up: the base mesh sits on the ground with its top at 101.5 m, the inlet faces -x, the outlet +x holds the water at 99.3 m, and the sides let the water slide.</p>
+<ol class="marks"><li>The shape <strong>terrain</strong>: the ground, closed into a solid.</li></ol>
+<figure><a href="img/reach/04.webp" class="zoom"><img src="img/reach/04.webp" alt="A river reach from a survey, step 4: The ground" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-5">
+<h2><span class="step-number">5</span>A rough bed</h2>
+<p>A natural channel with some stones and weeds: give the ground a Manning's n of <strong>0.035</strong>.</p>
+<ol class="marks"><li>The boundary <strong>terrain</strong>.</li><li><strong>Roughness</strong>: <em>Manning's n</em>.</li><li><strong>Manning's n</strong>: <code>0.035</code>.</li></ol>
+<figure><a href="img/reach/05.webp" class="zoom"><img src="img/reach/05.webp" alt="A river reach from a survey, step 5: A rough bed" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-6">
+<h2><span class="step-number">6</span>Mesh and run</h2>
+<p>snappyHexMesh cuts the ground out of the base mesh and refines once at it. Then run a minute of flow on eight cores: long enough for the water to run the length of the reach.</p>
+<ol class="marks"><li>Click <strong>Mesh</strong> in the toolbar (or press <strong>F5</strong>).</li><li><strong>End time</strong>: <code>60</code> s.</li><li><strong>Processor cores</strong>: <code>8</code>.</li><li>Click <strong>Run</strong> in the toolbar (or press <strong>F6</strong>).</li></ol>
+<figure><a href="img/reach/06.webp" class="zoom"><img src="img/reach/06.webp" alt="A river reach from a survey, step 6: Mesh and run" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-7">
+<h2><span class="step-number">7</span>The river</h2>
+<p>The <strong>Results</strong> step shows the water surface coloured by speed: the water winds round the meanders, faster on the outside of the bends.</p>
+<ol class="marks"><li><strong>Show</strong>: <em>Water surface</em>.</li><li><strong>Quantity</strong>: <code>U</code>.</li></ol>
+<figure><a href="img/reach/07.webp" class="zoom"><img src="img/reach/07.webp" alt="A river reach from a survey, step 7: The river" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-8">
+<h2><span class="step-number">8</span>Long section of the reach</h2>
+<p><strong>Long section</strong> integrates the water across the valley at stations along x. The water surface falls along the reach, the discharge settles towards the 4 m³/s let in, and the Froude number says the flow is slow and deep (subcritical).</p>
+<ol class="marks"><li>Press <strong>Long section</strong>.</li><li>Discharge, depth and Froude number along the reach.</li></ol>
+<figure><a href="img/reach/08.webp" class="zoom"><img src="img/reach/08.webp" alt="A river reach from a survey, step 8: Long section of the reach" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+  <nav class="pager"><a class="prev" href="channel.html"><span>Previous</span>Build a channel with a bend</a></nav>
+</main>
+</div>
+<div class="lightbox" hidden><img alt=""></div>
+<footer class="foot">
+  <p>EasyFOAM is free software (GPL-3.0-or-later). It is an independent project: it is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com and owner of the OPENFOAM® and OpenCFD® trade marks, and it is not affiliated with any other vendor of simulation software.</p>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>

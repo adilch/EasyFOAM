@@ -53,4 +53,30 @@ def spillway_stl() -> str:
     return "\n".join(lines) + "\n"
 
 
-DOWNLOADS = {"tutorials/files/spillway.stl": spillway_stl}
+# The valley of the "river reach from a survey" tutorial: survey coordinates the size of UTM ones.
+VALLEY_ORIGIN = (512_000.0, 4_181_000.0)  # where the valley's axis starts (east, north) [m]
+VALLEY_ANGLE = 30.0  # the valley runs this many degrees north of east
+
+
+def valley_asc(size: float = 1.0) -> str:
+    """A valley falling 0.4 % along its axis, with a 1.2 m deep meandering channel, as an ESRI ASCII grid."""
+    import numpy as np
+
+    along = np.arange(int(160 / size) + 1) * size
+    across = np.arange(int(100 / size) + 1) * size - 50
+    a, c = np.meshgrid(along, across)
+    z = 100 - 0.004 * a + 0.0008 * c**2 - 1.2 * np.exp(-(((c - 8 * np.sin(2 * math.pi * a / 80)) / 3.0) ** 2))
+    angle = math.radians(VALLEY_ANGLE)
+    east = VALLEY_ORIGIN[0] + a * math.cos(angle) - c * math.sin(angle)
+    north = VALLEY_ORIGIN[1] + a * math.sin(angle) + c * math.cos(angle)
+    e = np.arange(east.min(), east.max() + size, size)
+    n = np.arange(north.min(), north.max() + size, size)
+    grid = np.full((len(n), len(e)), -9999.0)
+    grid[np.round((north - n[0]) / size).astype(int), np.round((east - e[0]) / size).astype(int)] = z
+    rows = "\n".join(" ".join(f"{v:.3f}" for v in row) for row in grid[::-1])
+    header = [f"ncols {len(e)}", f"nrows {len(n)}", f"xllcenter {e[0]:.3f}", f"yllcenter {n[0]:.3f}",
+              f"cellsize {size}", "NODATA_value -9999"]  # fmt: skip
+    return "\n".join(header) + "\n" + rows + "\n"
+
+
+DOWNLOADS = {"tutorials/files/spillway.stl": spillway_stl, "tutorials/files/valley.asc": valley_asc}

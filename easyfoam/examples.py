@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from easyfoam.model import BaseFace, Boundary, Motion, Project, Shape
+from easyfoam.model import BaseFace, Boundary, Motion, Project, Shape, Tracer
 
 
 def empty(name: str) -> Project:
@@ -170,6 +170,70 @@ def gate(name: str) -> Project:
     return p
 
 
+def jump(name: str) -> Project:
+    """Water shoots under a sluice gate and forms a hydraulic jump against the tailwater (a thin slice).
+
+    0.206 m³/s per metre width passes a 0.1 m gate opening; the tailwater outlet holds 0.32 m.
+    """
+    p = Project(name=name)
+    base = p.mesh.base
+    base.min, base.max, base.cells = [0, 0, 0], [6, 0.05, 0.8], [300, 1, 40]
+    base.faces["xMin"] = BaseFace("inlet", "patch")
+    base.faces["xMax"] = BaseFace("outlet", "patch")
+    base.faces["yMin"] = base.faces["yMax"] = BaseFace("sides", "patch")  # frictionless: a slice of a wide channel
+    base.faces["zMin"] = BaseFace("bed", "wall")
+    base.faces["zMax"] = BaseFace("atmosphere", "patch")
+    _water(p)
+    p.physics.turbulence = "kOmegaSST"
+    p.physics.water_regions = [[0, 0, 0, 1.0, 0.05, 0.6], [1.1, 0, 0, 6, 0.05, 0.3]]
+    p.boundaries["inlet"] = Boundary(kind="flowRateInlet", flow_rate=0.0103)
+    p.boundaries["outlet"] = Boundary(kind="waterLevelOutlet", level=0.32)
+    p.boundaries["atmosphere"] = Boundary(kind="atmosphere")
+    p.shapes.append(Shape("gate", kind="box", min=[1.0, -1, 0.1], max=[1.1, 2, 1.0], level_min=0, level_max=0))
+    p.probes = [[0.5, 0.025, 0.3], [5.0, 0.025, 0.2]]
+    p.flow_monitors = ["outlet"]
+    run = p.run
+    run.end_time, run.delta_t, run.write_interval, run.max_courant, run.processors = 15.0, 0.001, 1.0, 0.5, 4
+    return p
+
+
+def tank(name: str) -> Project:
+    """A chlorine contact tank seen from above: nine cross baffles make the water wind from inlet to outlet.
+
+    30 x 10 m in plan and 3 m deep (768 m³ of water), 0.1 m³/s entering through a 2 m wide opening in one
+    corner, so V/Q is 2.1 hours. The baffles stand 3 m apart and leave a 2 m gap at alternate ends. A plan
+    view (one cell over the depth), steady. It carries the age of the water and a chlorine residual dosed at
+    2 mg/L that decays at 0.3 per hour. A tracer test gives a baffling factor of about 0.5 (average);
+    without the baffles it is about 0.25.
+    """
+    p = Project(name=name)
+    base = p.mesh.base
+    base.min, base.max, base.cells = [0, 0, 0], [30, 10, 3], [120, 40, 1]
+    base.faces["xMin"] = BaseFace("inlet", "patch")
+    base.faces["xMax"] = BaseFace("outlet", "patch")
+    base.faces["yMin"] = base.faces["yMax"] = BaseFace("walls", "wall")
+    base.faces["zMin"] = base.faces["zMax"] = BaseFace("floorAndSurface", "empty")  # a plan view
+    blocks = [
+        ("inletWall", [-1, 2, -1], [0.5, 11, 4]),  # leaves the inlet open over y 0-2
+        ("outletWall", [29.5, 2, -1], [31, 11, 4]),  # leaves the outlet open over y 0-2
+    ]
+    for i in range(1, 10):  # the water passes the odd baffles at the far side (y 8-10), the even ones at y 0-2
+        x = 3.0 * i
+        blocks.append((f"baffle{i}", [x, -1, -1], [x + 0.5, 8, 4]) if i % 2 else (f"baffle{i}", [x, 2, -1], [x + 0.5, 11, 4]))
+    for shape_name, lo, hi in blocks:
+        p.shapes.append(Shape(shape_name, kind="box", min=lo, max=hi, level_min=0, level_max=0))
+    p.physics.solver, p.physics.turbulence = "simpleFoam", "kOmegaSST"
+    p.physics.material, p.physics.nu, p.physics.rho = "water", 1.0e-06, 998.0
+    p.physics.initial_velocity = [0.0, 0.0, 0.0]
+    p.boundaries["inlet"] = Boundary(kind="velocityInlet", velocity=[0.1 / 6.0, 0.0, 0.0], tracer_value=2.0)
+    p.boundaries["outlet"] = Boundary(kind="pressureOutlet")
+    p.tracers = [Tracer("age", 1e-09, kind="age"), Tracer("chlorine", 1e-09, decay=0.3 / 3600)]
+    p.flow_monitors = ["outlet"]
+    run = p.run
+    run.end_time, run.write_interval, run.processors, run.residual_target = 2000, 500, 1, 1e-6
+    return p
+
+
 def floating(name: str) -> Project:
     """A flat box half as dense as water is released 3 cm too high and bobs until it floats at rest.
 
@@ -206,4 +270,6 @@ EXAMPLES: dict[str, Callable[[str], Project]] = {
     "waves": waves,
     "gate": gate,
     "floating": floating,
+    "jump": jump,
+    "tank": tank,
 }

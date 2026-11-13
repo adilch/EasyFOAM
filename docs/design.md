@@ -104,6 +104,51 @@ read by `LogParser` and drives the Motion plot, so no extra function object is
 needed. Overset meshes would lift the limits on how far things can move; they
 are left for later because they need a second mesh per body.
 
+## Hydraulic results
+
+`hydraulics.py` reads results only, never the solver's internals. A long section
+samples vertical lines across the channel at stations along a centreline (the
+base mesh's axis, or a built channel's curved one), integrates the water
+fraction up each line like a gauge, and sums across. Everything else (discharge,
+Froude number, energy line, the Coriolis coefficient that marks a jump's toe)
+follows from those integrals, so it works on any free-surface mesh. Loads add up
+pressure times the outward face areas of a wall's patch.
+
+## Boundaries that change in time
+
+Two OpenFOAM conditions were replaced by expressions (`uniformFixedValue` with an
+`expression`, evaluated per face, no compiling):
+
+- a tailwater level that changes in time sets `p_rgh = rho g (level - hRef)` with
+  the density of the cell beside each face. Fluid at rest below a level has that
+  `p_rgh`, so water feels the tailwater and air stays at ambient pressure. Values
+  fixed from the level alone pushed water pressure into air cells the water had
+  not yet reached;
+- an inlet by flow rate gives each face a speed in proportion to its water
+  fraction `a`, scaled by `sum(a² A)`: the water that comes in is then exactly
+  the flow asked for. `variableHeightFlowRateInletVelocity` sets the flow of the
+  water-air mix, which falls short wherever the surface is smeared at the inlet.
+
+## Tracers
+
+Tracers are `scalarTransport` function objects. Two numerical lessons are in the
+code: a steady tracer is carried with upwind and never relaxed (any relaxation
+factor forces diagonal dominance with a lagged correction, which never settles
+with limitedLinear and left the age of the water 8 % off), except a decaying one,
+because OpenFOAM applies a negative implicit source explicitly; and at outlets a
+tracer is zero-gradient, so water drawn back in by an eddy keeps its own
+concentration. A tracer test runs in a sub-case (`tracer-test/`) on the frozen
+steady flow: pimpleFoam without pressure or momentum solution.
+
+## Channels and terrain
+
+A built channel replaces the base box in `blockMeshDict`: the cross-section is cut
+into quadrilaterals (one block each, split at the initial water depth so that the
+starting water is a cell zone) and swept along straight pieces and arcs, falling
+at the bed slope. Terrain becomes an ordinary STL shape: the ground on a regular
+grid, closed with walls down its edges and a flat bottom below the base mesh, and
+snappyHexMesh keeps the side with the air above it.
+
 ## Adding a solver
 
 1. Add it to `SOLVERS` in `solvers.py`.

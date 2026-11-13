@@ -147,12 +147,16 @@ def traced(project):
 def test_a_tracer_is_carried_with_the_flow():
     p = traced(single())
     function = control_dict(p, PATCHES)["functions"]["tracer_dye"]
-    assert function["type"] == "scalarTransport" and function["field"] == "dye" and function["D"] == 2e-09
+    assert function["type"] == "scalarTransport" and function["field"] == "dye"
+    if p.physics.turbulence == "laminar":
+        assert function["D"] == 2e-09
+    else:  # turbulent flow also mixes the tracer (since v0.11)
+        assert function["alphaD"] == pytest.approx(2e-09 / p.physics.nu) and function["alphaDt"] == pytest.approx(1 / 0.7)
     cls, data = field_dicts(p, PATCHES)["dye"]
     assert cls == "volScalarField" and data["dimensions"] == "[0 0 0 0 0 0 0]"
     assert data["boundaryField"]["inlet"] == {"type": "fixedValue", "value": "uniform 1"}
     assert data["boundaryField"]["bed"] == {"type": "zeroGradient"}
-    assert data["boundaryField"]["outlet"]["type"] == "inletOutlet"
+    assert data["boundaryField"]["outlet"] == {"type": "zeroGradient"}  # backflow keeps its own value (v0.11)
     assert "div(phi,dye)" in fv_schemes(p)["divSchemes"] and "dye" in fv_solution(p)["solvers"]
 
 

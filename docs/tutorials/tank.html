@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contact tank: water age and a tracer test — EasyFOAM tutorials</title>
+<meta name="description" content="How long does the water stay in a baffled chlorine contact tank? Map its age, follow a tracer through it and read off T10 and the baffling factor.">
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="25" cy="32" r="8"/><path d="M8 15h14c11 0 13 7 23 7h11M8 49h14c11 0 13-7 23-7h11M41 32h15"/></svg><span>EasyFOAM</span><span class="brand-sub">tutorials</span></a>
+  <nav>
+    <a href="../index.html">All tutorials</a>
+    <a href="../tutorials/getting-started.html">Install</a>
+  </nav>
+</header>
+<div class="layout">
+<aside class="contents">
+  <a class="back" href="../index.html">← All tutorials</a>
+  <p class="contents-title">Steps</p>
+  <ol>
+<li><a href="#step-1">Open the example</a></li>
+<li><a href="#step-2">Name the project</a></li>
+<li><a href="#step-3">Nine baffles</a></li>
+<li><a href="#step-4">Age and chlorine</a></li>
+<li><a href="#step-5">What comes in</a></li>
+<li><a href="#step-6">Mesh and solve the flow</a></li>
+<li><a href="#step-7">The age of the water</a></li>
+<li><a href="#step-8">The tracer test</a></li>
+<li><a href="#step-9">T10 and the baffling factor</a></li>
+  </ol>
+</aside>
+<main class="tutorial">
+  <p class="crumb">Tutorial 13 of 15</p>
+  <h1>Contact tank: water age and a tracer test</h1>
+  <p class="lead">How long does the water stay in a baffled chlorine contact tank? Map its age, follow a tracer through it and read off T10 and the baffling factor.</p>
+  <div class="chips"><span class="chip">about 25 min</span><span class="chip level-intermediate">Intermediate</span><span class="chip topic">Water treatment</span><span class="chip topic">Tracers</span><span class="chip topic">Residence time</span></div>
+  <p>Disinfection credit in a chlorine contact tank depends on <strong>T10</strong>: the time by which the first tenth of the water has passed through. Baffles stop the water from short-circuiting, which raises T10 towards the theoretical residence time V/Q. Their effect is summed up in the <em>baffling factor</em> T10/(V/Q).</p>
+<p>In this tutorial you solve the steady flow through a tank with nine cross baffles, look at the age of the water and a decaying chlorine residual, and then run a tracer test the way it is done in the field: switch a tracer on at the inlet and record it at the outlet.</p>
+  <div class="learn"><h3>What you will learn</h3><ul><li>carry several tracers: the age of the water and a chlorine residual that decays</li><li>set the concentration that enters at an inlet</li><li>run a step tracer test in the frozen flow</li><li>read T10, the mean residence time, the baffling factor and the Morrill index</li></ul><p class="run-time">Computer time: about a minute for the flow and half a minute for the tracer test, on one core.</p></div>
+<section class="step" id="step-1">
+<h2><span class="step-number">1</span>Open the example</h2>
+<p>Start EasyFOAM. This case is one of the examples on the start page: it comes with every setting filled in, and this tutorial walks through each of them so that you understand the case and could build it yourself.</p>
+<ol class="marks"><li>Click <strong>Contact tank</strong>.</li></ol>
+<figure><a href="img/tank/01.webp" class="zoom"><img src="img/tank/01.webp" alt="Contact tank: water age and a tracer test, step 1: Open the example" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-2">
+<h2><span class="step-number">2</span>Name the project</h2>
+<p>The project is an ordinary folder that EasyFOAM creates for you.</p>
+<ol class="marks"><li>Type a name, for example <code>tank</code>.</li><li>Click <strong>Create project</strong>.</li></ol>
+<figure><a href="img/tank/02.webp" class="zoom"><img src="img/tank/02.webp" alt="Contact tank: water age and a tracer test, step 2: Name the project" loading="lazy" width="650" height="225"></a></figure>
+</section>
+<section class="step" id="step-3">
+<h2><span class="step-number">3</span>Nine baffles</h2>
+<p>The tank is 30 m by 10 m and 3 m deep, seen from above (one cell over the depth). Nine cross baffles 3 m apart leave a 2 m gap at alternate ends, so the water winds from one corner to the other.</p>
+<ol class="marks"><li>The baffles are plain boxes, <strong>baffle1</strong> to <strong>baffle9</strong>.</li></ol>
+<figure><a href="img/tank/03.webp" class="zoom"><img src="img/tank/03.webp" alt="Contact tank: water age and a tracer test, step 3: Nine baffles" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-4">
+<h2><span class="step-number">4</span>Age and chlorine</h2>
+<p>In <strong>Physics</strong>, the tank carries two tracers. <strong>age</strong> counts the seconds since the water came in, so dead zones show up as old water. <strong>chlorine</strong> comes in at 2 mg/L and decays at <strong>0.3 per hour</strong>, a first-order rate.</p>
+<ol class="marks"><li>Two tracers: the age of the water and chlorine, decaying at <code>0.3</code> per hour.</li><li><strong>Add water age</strong> adds a tracer that counts seconds.</li></ol>
+<figure><a href="img/tank/04.webp" class="zoom"><img src="img/tank/04.webp" alt="Contact tank: water age and a tracer test, step 4: Age and chlorine" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-5">
+<h2><span class="step-number">5</span>What comes in</h2>
+<p>The inlet sends in 0.1 m³/s through a 2 m opening. Its <strong>tracer concentration</strong> is the chlorine dose: <strong>2</strong> mg/L. The age needs none: water enters with age zero.</p>
+<ol class="marks"><li>The boundary <strong>inlet</strong>.</li><li><strong>Tracer concentration</strong>: <code>2</code>.</li></ol>
+<figure><a href="img/tank/05.webp" class="zoom"><img src="img/tank/05.webp" alt="Contact tank: water age and a tracer test, step 5: What comes in" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-6">
+<h2><span class="step-number">6</span>Mesh and solve the flow</h2>
+<p>The flow is steady (simpleFoam). The mesh takes a few seconds and the flow about a minute; the tracers are solved along with it.</p>
+<ol class="marks"><li>Click <strong>Mesh</strong> in the toolbar (or press <strong>F5</strong>).</li><li>Click <strong>Run</strong> in the toolbar (or press <strong>F6</strong>).</li></ol>
+<figure><a href="img/tank/06.webp" class="zoom"><img src="img/tank/06.webp" alt="Contact tank: water age and a tracer test, step 6: Mesh and solve the flow" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-7">
+<h2><span class="step-number">7</span>The age of the water</h2>
+<p>When the run is done, show <strong>age</strong> in the <strong>Results</strong> step, seen from above. Young water (blue) runs round the ends of the baffles; the corners behind them hold older water. The age of the water leaving is V/Q, 7680 s, as it must be for a steady flow.</p>
+<ol class="marks"><li><strong>Quantity</strong>: <code>age</code>, in seconds.</li></ol>
+<figure><a href="img/tank/07.webp" class="zoom"><img src="img/tank/07.webp" alt="Contact tank: water age and a tracer test, step 7: The age of the water" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-8">
+<h2><span class="step-number">8</span>The tracer test</h2>
+<p>In the <strong>Run</strong> step, under <strong>Tracer test</strong>, a tracer is fed in at the inlet and followed to the outlet in the frozen flow. A <strong>step</strong> test switches it on and leaves it on, as in the field. Leave <strong>Follow it for</strong> at 0: EasyFOAM follows it for three times V/Q.</p>
+<ol class="marks"><li><strong>Dose</strong>: <em>Step</em>.</li><li>Press <strong>Run the tracer test</strong>.</li><li>The water volume, the inflow and V/Q.</li></ol>
+<figure><a href="img/tank/08.webp" class="zoom"><img src="img/tank/08.webp" alt="Contact tank: water age and a tracer test, step 8: The tracer test" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-9">
+<h2><span class="step-number">9</span>T10 and the baffling factor</h2>
+<p>In <strong>Results</strong>, press <strong>Residence time</strong>. The plot shows F(t), the share of the tracer that has left, with T10 and V/Q marked. With nine baffles the baffling factor is about <strong>0.5</strong>: <em>average</em> baffling. Without them it drops to about 0.2. The last line says how much of the chlorine is left at the outlet, worked out from these residence times.</p>
+<ol class="marks"><li>Press <strong>Residence time</strong>.</li><li>T10, T50, T90, the baffling factor and the chlorine left at the outlet.</li></ol>
+<figure><a href="img/tank/09.webp" class="zoom"><img src="img/tank/09.webp" alt="Contact tank: water age and a tracer test, step 9: T10 and the baffling factor" loading="lazy" width="1900" height="1125"></a></figure>
+<aside class="tip"><p>Delete the baffles in the Geometry step, rerun the flow and the tracer test, and compare.</p></aside>
+</section>
+  <nav class="pager"><a class="prev" href="jump.html"><span>Previous</span>Hydraulic jump: long section and loads</a><a class="next" href="channel.html"><span>Next</span>Build a channel with a bend</a></nav>
+</main>
+</div>
+<div class="lightbox" hidden><img alt=""></div>
+<footer class="foot">
+  <p>EasyFOAM is free software (GPL-3.0-or-later). It is an independent project: it is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com and owner of the OPENFOAM® and OpenCFD® trade marks, and it is not affiliated with any other vendor of simulation software.</p>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>

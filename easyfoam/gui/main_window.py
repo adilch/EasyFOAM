@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import numpy as np
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QFont, QKeySequence
 from PySide6.QtWidgets import (
@@ -47,6 +48,7 @@ from easyfoam.gui.panels import (
 )
 from easyfoam.gui.sidebar import DETAIL_ROLE, ICON_ROLE, ROW_HEIGHT, STATE_ROLE, STEP_ICONS, StepDelegate
 from easyfoam.gui.welcome import EXAMPLES as EXAMPLE_CARDS
+from easyfoam.gui.welcome import SHOWN as EXAMPLES_SHOWN
 from easyfoam.gui.welcome import NewProjectDialog, WelcomePage
 from easyfoam.model import PROJECT_FILE, Project
 from easyfoam.pipeline import (
@@ -71,9 +73,13 @@ EXAMPLE_LABELS = {
     "waves": "Example: waves in a flume (free surface)",
     "gate": "Example: lifting sluice gate (moving shape)",
     "floating": "Example: floating box (moved by the water)",
+    "jump": "Example: hydraulic jump below a sluice gate",
+    "tank": "Example: chlorine contact tank (water age, T10)",
     "cavity": "Example: lid-driven cavity",
 }
 MESH_MOTION_RESIDUALS = ("pcorr", "cellDisplacement")
+BED_FIELDS = ("bedShearStress", "sedimentMobility")
+NO_HYDRAULICS_TEXT = "Choose Long section, Pressure or Loads under Hydraulic results in the Results step."
 NO_MOTION_TEXT ="Give a shape a motion in the Geometry step to follow it here."
 RESIDUAL_COLOURS = ["#4c78a8", "#f58518", "#54a24b", "#e45756", "#b279a2", "#72b7b2", "#9d755d", "#eeca3b"]
 _CELLS = re.compile(r"^\s*cells:\s+(\d+)")
@@ -166,12 +172,17 @@ class MainWindow(QMainWindow):
         self.run_panel.run_requested.connect(self.run_solver)
         self.run_panel.stop_requested.connect(self.stop_job)
         self.run_panel.continue_requested.connect(self.continue_run)
+        self.run_panel.tracer_test_requested.connect(self.run_tracer_test)
         self.geometry_panel.selection_changed.connect(self._highlight)
+        self.geometry_panel.channel_requested.connect(self.build_channel)
+        self.geometry_panel.terrain_requested.connect(self.bring_in_terrain)
         self.boundary_panel.selection_changed.connect(self._highlight)
         self.results_panel.view_changed.connect(self.refresh_view)
         self.results_panel.refresh_requested.connect(self.reload_results)
         self.results_panel.paraview_requested.connect(self.open_paraview)
         self.results_panel.compute_requested.connect(self.compute_quantity)
+        self.results_panel.hydraulics_requested.connect(self.hydraulics)
+        self.results_panel.export_requested.connect(lambda: self.export_table())
 
     def _build_centre(self, enable_3d: bool) -> None:
         left = QWidget()
@@ -219,6 +230,9 @@ class MainWindow(QMainWindow):
         self.force_label = QLabel("Switch on the force monitor in the Run step to see drag and lift here.")
         self.motion_plot = None
         self.rotation_plot = None
+        self.hydraulics_view = None
+        self._table = None  # the numbers behind the last hydraulic plot
+        self._shear_wanted = False
         self.motion_label = QLabel(NO_MOTION_TEXT)
         self._motion_curves: dict = {}
         self._rotation_curves: dict = {}
@@ -286,6 +300,21 @@ class MainWindow(QMainWindow):
             motion_plots.addWidget(self.rotation_plot, 1)
             motion_layout.addLayout(motion_plots, 1)
             self.bottom.addTab(motion_holder, "Motion")
+            self.hydraulics_view = pg.GraphicsLayoutWidget()
+            self.hydraulics_view.setBackground("w")
+            self.upper_plot = self.hydraulics_view.addPlot(row=0, col=0)
+            self.lower_plot = self.hydraulics_view.addPlot(row=1, col=0)
+            for plot in (self.upper_plot, self.lower_plot):
+                plot.getAxis("left").enableAutoSIPrefix(False)
+                plot.showGrid(x=True, y=True, alpha=0.25)
+            self.hydraulics_label = QLabel(NO_HYDRAULICS_TEXT)
+            self.hydraulics_label.setWordWrap(True)
+            hydraulics_holder = QWidget()
+            hydraulics_layout = QVBoxLayout(hydraulics_holder)
+            hydraulics_layout.setContentsMargins(6, 4, 0, 0)
+            hydraulics_layout.addWidget(self.hydraulics_label)
+            hydraulics_layout.addWidget(self.hydraulics_view, 1)
+            self.bottom.addTab(hydraulics_holder, "Hydraulics")
         except ImportError:  # the window still works without live plots
             pass
         self.bottom.addTab(self.log, "Log")
@@ -347,7 +376,7 @@ class MainWindow(QMainWindow):
         file_menu = self.menuBar().addMenu("&File")
         file_menu.addAction(self.new_action)
         examples = file_menu.addMenu(icon("book-open"), "New from example")
-        for key in ("sphere", "pipe", "cavity", "weir", "dambreak", "waves", "gate", "floating"):
+        for key in EXAMPLES_SHOWN:
             examples.addAction(icon(EXAMPLE_CARDS[key][0]), EXAMPLE_LABELS[key],
                                lambda k=key: self._new_project_dialog(k))  # fmt: skip
         file_menu.addAction(self.open_action)
@@ -705,11 +734,11 @@ class MainWindow(QMainWindow):
             return False
         return True
 
-    def _start(self, name: str, steps, parse_step: str | None = None) -> None:
+    def _start(self, name: str, steps, parse_step: str | None = None, case_dir: Path | None = None) -> None:
         self.save_project()
         self._stop_requested = False
         self.log.appendPlainText(f"\n=== {name} — {self.runtime.label} ===")
-        self.thread = JobThread(self.case_dir, self.runtime, name, steps, parse_step, parent=self)
+        self.thread = JobThread(case_dir or self.case_dir, self.runtime, name, steps, parse_step, parent=self)
         self.thread.step_started.connect(lambda step: self.statusBar().showMessage(f"{name}: {step}…"))
         self.thread.finished_with.connect(self._job_finished)
         self._set_running(True, f"{name} running…")
@@ -789,6 +818,10 @@ class MainWindow(QMainWindow):
 
     def _show_computed(self) -> None:
         function = self._pending_field
+        if function == "wallShearStress" and self._shear_wanted:
+            self._shear_wanted = False
+            self.results_panel.select_field("bedShearStress", "surface")
+            return
         on_walls = function in ("yPlus", "wallShearStress")
         self.results_panel.select_field(function, "surface" if on_walls else None)
         if function == "yPlus":
@@ -877,6 +910,8 @@ class MainWindow(QMainWindow):
             self._set_running(False, f"Mesh ready{cells}.")
         elif name == "compute":
             self._set_running(False, f"Computed {self._pending_field}.")
+        elif name == "tracer test":
+            self._set_running(False, "Tracer test finished.")
         elif self._stop_requested:
             self._set_running(False, "Stopped; the current state was saved. Use Continue to carry on.")
         else:
@@ -887,6 +922,8 @@ class MainWindow(QMainWindow):
         self._update_forces()
         if result.ok and name == "compute":
             self._show_computed()
+        if result.ok and name == "tracer test":
+            self.hydraulics("residence")
         if result.ok and name == "run":
             if solver_spec(self.project.physics.solver).multiphase:
                 self.results_panel.select_field("U", "water")  # the water surface, coloured by speed
@@ -1073,11 +1110,20 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------- view
 
+    def _results_dir(self) -> Path:
+        """The folder whose results are shown: the flow run, or the tracer test that followed it."""
+        from easyfoam.tracertest import subcase
+
+        test = subcase(self.case_dir)
+        if self.results_panel.source.currentData() == "tracer-test" and (test / "system").is_dir():
+            return test
+        return self.case_dir
+
     def _case_results(self):
         if self._results is None and self.case_dir is not None and self.mesh_patches():
             from easyfoam.results import CaseResults
 
-            self._results = CaseResults(self.case_dir, self.project.name)
+            self._results = CaseResults(self._results_dir(), self.project.name)
         return self._results
 
     def reload_results(self, show: bool = True) -> None:
@@ -1091,9 +1137,19 @@ class MainWindow(QMainWindow):
                 fields = results.fields if any(t > 0 for t in times) else []
                 if fields and solver_spec(self.project.physics.solver).multiphase and {"p", "U"} <= set(fields):
                     fields = [*fields, "cavitationIndex"]  # computed here from pressure and speed
+                if "wallShearStress" in fields:
+                    fields = [*fields, *BED_FIELDS]  # computed here from the shear stress on the walls
         except Exception as exc:  # a broken or half-written case must not take the window down
             self.statusBar().showMessage(f"Could not read results: {exc}", 8000)
         self.results_panel.set_available(times, fields)
+        from easyfoam.tracertest import subcase
+
+        self.results_panel.show_source_choice(bool(self.case_dir) and (subcase(self.case_dir) / "system").is_dir())
+        walls = [p.name for p in self.mesh_patches() if p.type == "wall"] if self.case_dir else []
+        shapes = {s.name for s in self.project.shapes} if self.project else set()
+        walls.sort(key=lambda name: (name.split("_")[0] not in shapes, name))  # the structures first
+        free_surface = bool(self.project) and solver_spec(self.project.physics.solver).multiphase
+        self.results_panel.set_structures(walls, free_surface and bool(fields))
         if show:
             self.refresh_view()
 
@@ -1117,6 +1173,8 @@ class MainWindow(QMainWindow):
             if step == "Results" and self.results_panel.field.count():
                 sel = self.results_panel.selection()
                 data = results.read(sel["time"])
+                if sel["field"] in BED_FIELDS:
+                    self._add_bed_shear(data)
                 if sel["field"] == "cavitationIndex":
                     ph = self.project.physics
                     lowest = add_cavitation_index(data.internal, ph.rho, ph.ambient_pressure, ph.vapour_pressure)
@@ -1137,6 +1195,350 @@ class MainWindow(QMainWindow):
                 self.viewer.show_mesh(results.read(0.0 if 0.0 in results.times else None), types)
         except Exception as exc:
             self.statusBar().showMessage(f"3D view: {exc}", 8000)
+
+    # ------------------------------------------------------------- hydraulics
+
+    def hydraulics(self, kind: str) -> None:
+        """Work out a hydraulic result for the saved time chosen in the Results step."""
+        records = {"rating": self._rating, "residence": self._residence}  # from what the runs recorded as they went
+        results = None
+        if kind not in records:
+            results = self._case_results() if self.project else None
+            if results is None or not results.times:
+                self.notify("Hydraulic results", "There are no results yet. Run the simulation first.")
+                return
+        elif self.project is None or self.case_dir is None:
+            return
+        if kind == "shear":
+            self._bed_shear()
+            return
+        time = self.results_panel.time.currentData()
+        try:
+            if kind in records:
+                records[kind]()
+            elif kind == "long":
+                self._long_section(results, time)
+            elif kind == "pressure":
+                self._pressure(results, time)
+            elif kind == "loads":
+                self._loads(results, time)
+        except (ValueError, KeyError) as exc:
+            self.notify("Hydraulic results", str(exc), "warning")
+            return
+        self.results_panel.export_button.setEnabled(self._table is not None)
+        self._show_tab("Hydraulics")
+
+    def _plots_ready(self, upper: str, lower: str | None, bottom: str):
+        import pyqtgraph as pg
+
+        for plot in (self.upper_plot, self.lower_plot):
+            plot.clear()
+            if plot.legend is not None:
+                plot.legend.scene().removeItem(plot.legend)
+                plot.legend = None
+        self.upper_plot.addLegend(offset=(-10, 10))
+        self.upper_plot.setLabel("left", upper)
+        self.upper_plot.setLabel("bottom", bottom)
+        self.lower_plot.setVisible(lower is not None)
+        if lower is not None:
+            self.lower_plot.setLabel("left", lower)
+            self.lower_plot.setLabel("bottom", bottom)
+            self.lower_plot.setXLink(self.upper_plot)
+        return pg
+
+    def _long_section(self, results, time) -> None:
+        from easyfoam import hydraulics as hy
+
+        count = self.results_panel.average.value()
+        chosen = [t for t in results.times if 0 < t <= time + 1e-9][-count:] or [time]
+        sections = [hy.long_section(results.read(t), self.project, self.case_dir, time=t) for t in chosen]
+        section = hy.average_sections(sections)
+        self._table = section
+        lines = hy.summary(section)
+        self.results_panel.hydraulics_info.setText("\n".join(lines))
+        when = f"at {time:g} s" if len(chosen) == 1 else f"averaged from {chosen[0]:g} to {chosen[-1]:g} s"
+        self.hydraulics_label.setText(f"Long section {when}. " + lines[0])
+        if self.hydraulics_view is None:
+            return
+        pg = self._plots_ready("Level [m]", "Froude number", "Chainage [m]")
+        s = section.chainage
+        floor = float(min(np.nanmin(section.bed), self.project.mesh.base.min[2]))
+        bed = self.upper_plot.plot(s, section.bed, pen=pg.mkPen("#8d6e4a", width=2), name="bed",
+                                   fillLevel=floor, brush=pg.mkBrush(141, 110, 74, 90))  # fmt: skip
+        water = self.upper_plot.plot(s, section.water_level, pen=pg.mkPen("#1f77b4", width=2), name="water level")
+        self.upper_plot.addItem(pg.FillBetweenItem(bed, water, brush=pg.mkBrush(31, 119, 180, 60)))
+        self.upper_plot.plot(s, section.energy_level, name="energy line",
+                             pen=pg.mkPen("#d62728", width=1.5, style=Qt.PenStyle.DashLine))  # fmt: skip
+        n, width = self._bed_manning()
+        if n:  # a rough bed: compare with a 1D backwater calculation using the same Manning's n
+            profile = hy.backwater(section, n, width)
+            if np.isfinite(profile).sum() > 2:
+                self.upper_plot.plot(s, profile, name=f"1D profile, n = {n:.3g}",
+                                     pen=pg.mkPen("#2ca02c", width=1.5, style=Qt.PenStyle.DotLine))  # fmt: skip
+        self.lower_plot.plot(s, section.froude, pen=pg.mkPen("#2563eb", width=2))
+        self.lower_plot.addItem(pg.InfiniteLine(1.0, angle=0, pen=pg.mkPen("#888", style=Qt.PenStyle.DashLine),
+                                                label="critical", labelOpts={"position": 0.95}))  # fmt: skip
+        for jump in hy.find_jumps(section):
+            for at, text in ((jump.toe, "jump"), (jump.end, "")):
+                self.upper_plot.addItem(pg.InfiniteLine(at, pen=pg.mkPen("#9467bd", style=Qt.PenStyle.DotLine),
+                                                        label=text, labelOpts={"position": 0.9}))  # fmt: skip
+        for control in hy.find_controls(section):
+            self.upper_plot.addItem(pg.InfiniteLine(control.chainage, pen=pg.mkPen("#2ca02c", style=Qt.PenStyle.DotLine),
+                                                    label="critical", labelOpts={"position": 0.8}))  # fmt: skip
+
+    def _bed_manning(self) -> tuple[float, float | None]:
+        """Manning's n of the bed (0 if it is smooth) and the channel width if its sides are walls."""
+        from easyfoam.model import manning_from_ks, roughness_height
+
+        base = self.project.mesh.base
+        bed = self.project.boundary_for(base.faces["zMin"].name, base.faces["zMin"].type)
+        ks = roughness_height(bed)
+        if ks <= 0:
+            return 0.0, None
+        n = bed.manning if bed.roughness == "manning" else manning_from_ks(ks)
+        side = base.faces["yMin"]
+        walls = self.project.boundary_for(side.name, side.type).kind == "wall"
+        return n, (base.max[1] - base.min[1]) if walls else None
+
+    def _pressure(self, results, time) -> None:
+        from easyfoam import hydraulics as hy
+
+        name = self.results_panel.structure.currentText()
+        data = results.read(time)
+        if name not in data.patches:
+            raise ValueError(f"there is no boundary called '{name}' in the results")
+        profile = hy.pressure_profile(data.patches[name], self.project)
+        self._table = profile
+        lowest = int(np.nanargmin(profile.head))
+        text = (
+            f"Pressure along {name} at {time:g} s: lowest pressure head {profile.head[lowest]:.3g} m at "
+            f"x = {profile.x[lowest]:.3g} m, z = {profile.z[lowest]:.3g} m"
+            + (" (below atmospheric)." if profile.head[lowest] < 0 else ".")
+        )
+        self.results_panel.hydraulics_info.setText(text)
+        self.hydraulics_label.setText(text)
+        if self.hydraulics_view is None:
+            return
+        pg = self._plots_ready("Pressure head [m of water]", None, "Distance along the surface [m]")
+        self.upper_plot.plot(profile.distance, profile.head, pen=pg.mkPen("#2563eb", width=2), name=name)
+        self.upper_plot.addItem(pg.InfiniteLine(0.0, angle=0, pen=pg.mkPen("#888", style=Qt.PenStyle.DashLine),
+                                                label="atmospheric", labelOpts={"position": 0.95}))  # fmt: skip
+
+    def _loads(self, results, time) -> None:
+        from easyfoam import hydraulics as hy
+
+        name = self.results_panel.structure.currentText()
+        point = self.results_panel.chosen_point()
+        times = [t for t in results.times if t > 0]
+        history, chosen = [], None
+        for t in times:
+            data = results.read(t)
+            if name not in data.patches:
+                raise ValueError(f"there is no boundary called '{name}' in the results")
+            loads = hy.structure_loads([data.patches[name]], self.project, point)
+            history.append((t, loads))
+            if t == time:
+                chosen = loads
+        chosen = chosen or history[-1][1]
+        per = chosen.width or 1.0
+        unit = "kN/m" if chosen.width else "kN"
+        self._table = hy.Table(
+            f"Loads on {name}",
+            ["time [s]", f"force along the flow [{unit}]", f"force across [{unit}]", f"vertical force [{unit}]",
+             f"moment about the flow axis [{unit}·m]", f"overturning moment [{unit}·m]", f"moment about z [{unit}·m]"],
+            [[t, *(loads.force / per / 1000), *(loads.moment / per / 1000)] for t, loads in history],
+        )  # fmt: skip
+        lines = [f"Loads on {name} at {time:g} s (pressure only; friction is usually below 1 %):", *chosen.lines()]
+        self.results_panel.hydraulics_info.setText("\n".join(lines))
+        self.hydraulics_label.setText(" ".join(lines[:2]))
+        if self.hydraulics_view is None:
+            return
+        pg = self._plots_ready(f"Force [{unit}]", f"Overturning moment [{unit}·m]", "Time [s]")
+        ts = [t for t, _ in history]
+        self.upper_plot.plot(ts, [h.force[0] / per / 1000 for _, h in history], name="along the flow",
+                             pen=pg.mkPen("#2563eb", width=2), symbol="o", symbolSize=5)  # fmt: skip
+        self.upper_plot.plot(ts, [h.force[2] / per / 1000 for _, h in history], name="vertical (up +)",
+                             pen=pg.mkPen("#f58518", width=2), symbol="o", symbolSize=5)  # fmt: skip
+        self.lower_plot.plot(ts, [h.moment[1] / per / 1000 for _, h in history],
+                             pen=pg.mkPen("#54a24b", width=2), symbol="o", symbolSize=5)  # fmt: skip
+
+    def build_channel(self) -> None:
+        """Ask for the section, slope and centreline of a channel, then build it."""
+        if self.project is None:
+            return
+        from easyfoam.gui.channel_dialog import ChannelDialog
+
+        dialog = ChannelDialog(self.project.channel, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.apply_channel(dialog.channel())
+
+    def apply_channel(self, channel) -> None:
+        """Make the project model a channel: its mesh, the water in it at the start, its boundaries."""
+        from easyfoam import channel as chm
+
+        try:
+            done = chm.use_channel(self.project, channel)
+        except ValueError as exc:
+            self.notify("Channel", str(exc), "warning")
+            return
+        self._load_panels()
+        self._project_changed(shape=True, physics=True)
+        if self.current_step() == "Geometry":
+            self.refresh_view()
+        what = "; ".join(done)
+        self.notify("Channel", "The channel is set up" + (f": {what}" if what else "") +
+                    ". Generate its mesh in the Mesh step.")  # fmt: skip
+
+    def bring_in_terrain(self) -> None:
+        """Read a survey file and model the flow over that ground."""
+        if self.project is None or self.case_dir is None:
+            return
+        from easyfoam.gui.terrain_dialog import TerrainDialog
+
+        dialog = TerrainDialog(parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            try:
+                ground = dialog.ground()
+            except ValueError as exc:
+                self.notify("Terrain", str(exc), "warning")
+                return
+            self.apply_terrain(ground, **dialog.settings())
+
+    def apply_terrain(self, ground, cell_size: float, water_level: float | None, top: float | None = None,
+                      discharge: float = 1.0) -> None:  # fmt: skip
+        """Model the flow over a ground: its solid, the base mesh above it, the water and the boundaries."""
+        from easyfoam import terrain as tr
+
+        try:
+            done = tr.use_terrain(self.project, self.case_dir, ground, cell_size, water_level, top, discharge)
+        except (ValueError, OSError) as exc:
+            self.notify("Terrain", str(exc), "warning")
+            return
+        self._load_panels()
+        self._project_changed(shape=True, physics=True)
+        if self.current_step() == "Geometry":
+            self.refresh_view()
+        self.notify("Terrain", "The ground is in: " + "; ".join(done) + ". Generate the mesh in the Mesh step.")
+
+    def run_tracer_test(self) -> None:
+        """Feed a tracer into the finished steady flow and follow it to the outlet (its own case folder)."""
+        if not self._can_start():
+            return
+        from easyfoam import tracertest as tt
+        from easyfoam.results import CaseResults
+
+        try:
+            settings = self.run_panel.test_settings()
+            flow = CaseResults(self.case_dir, self.project.name)
+            if not [t for t in flow.times if t > 0]:
+                raise ValueError("run the flow first: the tracer test starts from its result")
+            volume, inflow = tt.volume_and_flow(flow.read(flow.times[-1]), self.project, [settings.inlet])
+            if inflow <= 0:
+                raise ValueError(f"no water enters through {settings.inlet} in the result")
+            residence = volume / inflow
+            target, steps = tt.prepare(self.case_dir, self.project, settings, residence)
+        except (ValueError, RuntimeError, OSError) as exc:
+            self.notify("Tracer test", str(exc), "warning")
+            return
+        self._test = (settings, residence, settings.pulse or residence / 50.0)
+        self.run_panel.test_status.setText(
+            f"Water volume {volume:.4g} m³, inflow {inflow:.4g} m³/s: theoretical residence time V/Q = "
+            f"{residence:.4g} s. Following the tracer for {settings.duration or 3 * residence:.4g} s."
+        )
+        self._start("tracer test", steps, parse_step="pimpleFoam", case_dir=target)
+
+    def _residence(self) -> None:
+        from easyfoam import tracertest as tt
+
+        test = getattr(self, "_test", None) or tt.load_test(self.case_dir)  # also after reopening the project
+        if test is None:
+            raise ValueError("run a tracer test first (Run step)")
+        settings, residence, pulse = test
+        times, concentration = tt.read_test(self.case_dir, settings.outlet)
+        result = tt.residence_times(times, concentration, settings.kind, residence, pulse)
+        self._table = result
+        lines = [f"Tracer test ({settings.kind}) from {settings.inlet} to {settings.outlet}:", *result.lines(),
+                 *tt.decay_lines(result, self.project, settings.inlet)]  # fmt: skip
+        self.results_panel.hydraulics_info.setText("\n".join(lines))
+        self.hydraulics_label.setText(" ".join(lines[2:4]))
+        if self.hydraulics_view is None:
+            return
+        pg = self._plots_ready("Share of the tracer [-]", "E(t) [1/s]", "Time [s]")
+        self.upper_plot.plot(result.times, result.cumulative, name="F(t): has left",
+                             pen=pg.mkPen("#2563eb", width=2))  # fmt: skip
+        if settings.kind == "pulse":
+            self.upper_plot.plot(result.times, result.concentration, name="outlet concentration",
+                                 pen=pg.mkPen("#f58518", width=1.5))  # fmt: skip
+        for at, label in ((result.t10, "T10"), (result.theoretical, "V/Q")):
+            if np.isfinite(at):
+                self.upper_plot.addItem(pg.InfiniteLine(at, pen=pg.mkPen("#888", style=Qt.PenStyle.DashLine),
+                                                        label=label, labelOpts={"position": 0.9}))  # fmt: skip
+        self.lower_plot.plot(result.times, result.density, pen=pg.mkPen("#54a24b", width=2))
+
+    def _rating(self) -> None:
+        from easyfoam import hydraulics as hy
+
+        points = hy.rating_curve(self.project, self.case_dir)
+        if not points:
+            raise ValueError("the run has not reached the end of the first discharge yet")
+        self._table = hy.Table(
+            "Rating curve", hy.RATING_HEADER,
+            [[p.discharge, p.level, p.head, p.outflow, p.coefficient, p.discharge_coefficient, p.drift,
+              1.0 if p.steady else 0.0] for p in points],
+        )  # fmt: skip
+        lines = ["Rating curve (head at the gauge over the crest; Q = C·B·H^1.5):"]
+        for p in points:
+            note = "" if p.steady else "  (not settled: hold it longer)"
+            lines.append(f"Q {p.discharge:.4g} m³/s: head {p.head:.3g} m, C = {p.coefficient:.3g}, "
+                         f"Cd = {p.discharge_coefficient:.3g}{note}")  # fmt: skip
+        self.results_panel.hydraulics_info.setText("\n".join(lines))
+        self.hydraulics_label.setText(lines[0] + " " + "; ".join(line.split(":")[0] for line in lines[1:]))
+        if self.hydraulics_view is None:
+            return
+        pg = self._plots_ready("Head over the crest [m]", "Weir coefficient C [m^0.5/s]", "Discharge [m³/s]")
+        q = [p.discharge for p in points]
+        self.upper_plot.plot(q, [p.head for p in points], name="measured", pen=pg.mkPen("#2563eb", width=2),
+                             symbol="o", symbolSize=7)  # fmt: skip
+        self.lower_plot.plot(q, [p.coefficient for p in points], pen=pg.mkPen("#f58518", width=2),
+                             symbol="o", symbolSize=7)  # fmt: skip
+
+    def _bed_shear(self) -> None:
+        results = self._case_results()
+        if "wallShearStress" in results.fields:
+            self.results_panel.select_field("bedShearStress", "surface")
+            return
+        self._shear_wanted = True
+        self.compute_quantity("wallShearStress")
+
+    def _add_bed_shear(self, data) -> None:
+        from easyfoam import hydraulics as hy
+
+        d50 = self.results_panel.d50.value() / 1000.0
+        physics = self.project.physics
+        critical = hy.critical_shear_stress(d50, rho_water=physics.rho) if d50 > 0 else None
+        largest = 0.0
+        for surface in data.patches.values():
+            found = hy.add_bed_shear(surface, self.project, critical)
+            largest = max(largest, found or 0.0)
+        if critical:
+            self.results_panel.info.setText(
+                f"Largest shear stress in the water: {largest:.3g} Pa. A bed of {d50 * 1000:g} mm grains starts to "
+                f"move above {critical:.3g} Pa (Shields): sediment mobility above 1 means the bed would move there."
+            )
+
+    def export_table(self, path: Path | None = None) -> Path | None:
+        """Save the numbers behind the last hydraulic plot as CSV (asks where when no path is given)."""
+        if self._table is None:
+            return None
+        if path is None:
+            chosen, _ = QFileDialog.getSaveFileName(self, "Save the table", str(self.case_dir / "table.csv"),
+                                                    "CSV (*.csv)")  # fmt: skip
+            if not chosen:
+                return None
+            path = Path(chosen)
+        self._table.write_csv(Path(path))
+        self.statusBar().showMessage(f"Saved {path}", 5000)
+        return Path(path)
 
     def open_paraview(self) -> None:
         if self.case_dir is None:

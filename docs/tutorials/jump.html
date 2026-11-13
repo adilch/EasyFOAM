@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hydraulic jump: long section and loads — EasyFOAM tutorials</title>
+<meta name="description" content="Water shoots under a sluice gate and jumps back up. Find the jump, check it against Bélanger and work out the force on the gate.">
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="25" cy="32" r="8"/><path d="M8 15h14c11 0 13 7 23 7h11M8 49h14c11 0 13-7 23-7h11M41 32h15"/></svg><span>EasyFOAM</span><span class="brand-sub">tutorials</span></a>
+  <nav>
+    <a href="../index.html">All tutorials</a>
+    <a href="../tutorials/getting-started.html">Install</a>
+  </nav>
+</header>
+<div class="layout">
+<aside class="contents">
+  <a class="back" href="../index.html">← All tutorials</a>
+  <p class="contents-title">Steps</p>
+  <ol>
+<li><a href="#step-1">Open the example</a></li>
+<li><a href="#step-2">Name the project</a></li>
+<li><a href="#step-3">The gate</a></li>
+<li><a href="#step-4">Discharge and tailwater</a></li>
+<li><a href="#step-5">Mesh and run</a></li>
+<li><a href="#step-6">The long section</a></li>
+<li><a href="#step-7">Pressure on the gate</a></li>
+<li><a href="#step-8">The force on the gate</a></li>
+  </ol>
+</aside>
+<main class="tutorial">
+  <p class="crumb">Tutorial 12 of 15</p>
+  <h1>Hydraulic jump: long section and loads</h1>
+  <p class="lead">Water shoots under a sluice gate and jumps back up. Find the jump, check it against Bélanger and work out the force on the gate.</p>
+  <div class="chips"><span class="chip">about 30 min</span><span class="chip level-intermediate">Intermediate</span><span class="chip topic">Free surface</span><span class="chip topic">Hydraulic structures</span><span class="chip topic">Hydraulic results</span><span class="chip topic">Checked against theory</span></div>
+  <p>Below a sluice gate the water leaves in a fast, shallow jet. Downstream, the tailwater is deep and slow. Where the two meet, the jet jumps up in a turbulent roller: a hydraulic jump, which destroys a large part of the jet's energy. Its height follows from the momentum balance (Bélanger's equation).</p>
+<p>In this tutorial you run the jump example, draw its long section, let EasyFOAM find the jump and compare it with Bélanger, then read off the pressure on the gate and the force that pushes on it.</p>
+  <div class="learn"><h3>What you will learn</h3><ul><li>draw a long section: water level, energy line and Froude number along a channel</li><li>average an oscillating flow over several saved times</li><li>find a hydraulic jump and compare its sequent depth and energy loss with theory</li><li>work out the pressure on a structure and the force and moment it carries</li></ul><p class="run-time">Computer time: about ten minutes on four cores.</p></div>
+<section class="step" id="step-1">
+<h2><span class="step-number">1</span>Open the example</h2>
+<p>Start EasyFOAM. This case is one of the examples on the start page: it comes with every setting filled in, and this tutorial walks through each of them so that you understand the case and could build it yourself.</p>
+<ol class="marks"><li>Click <strong>Hydraulic jump</strong>.</li></ol>
+<figure><a href="img/jump/01.webp" class="zoom"><img src="img/jump/01.webp" alt="Hydraulic jump: long section and loads, step 1: Open the example" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-2">
+<h2><span class="step-number">2</span>Name the project</h2>
+<p>The project is an ordinary folder that EasyFOAM creates for you.</p>
+<ol class="marks"><li>Type a name, for example <code>jump</code>.</li><li>Click <strong>Create project</strong>.</li></ol>
+<figure><a href="img/jump/02.webp" class="zoom"><img src="img/jump/02.webp" alt="Hydraulic jump: long section and loads, step 2: Name the project" loading="lazy" width="650" height="248"></a></figure>
+</section>
+<section class="step" id="step-3">
+<h2><span class="step-number">3</span>The gate</h2>
+<p>The channel is a thin slice, 6 m long and 0.8 m high, of a wide channel. The gate is a box from the top of the channel down to <strong>0.1 m above the bed</strong>: the opening the water shoots through.</p>
+<ol class="marks"><li>The shape <strong>gate</strong>.</li><li><strong>Corner (min)</strong>: <code>1</code>, <code>-1</code>, <code>0.1</code>. The last number is the gate opening.</li></ol>
+<figure><a href="img/jump/03.webp" class="zoom"><img src="img/jump/03.webp" alt="Hydraulic jump: long section and loads, step 3: The gate" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-4">
+<h2><span class="step-number">4</span>Discharge and tailwater</h2>
+<p>The inlet lets in <strong>0.0103 m³/s</strong> through the 5 cm slice, which is 0.206 m³/s per metre width. The outlet holds the tailwater at <strong>0.32 m</strong>: that is what pushes the jump back towards the gate.</p>
+<ol class="marks"><li>The boundary <strong>outlet</strong>.</li><li><strong>Tailwater level</strong>: <code>0.32</code> m.</li></ol>
+<figure><a href="img/jump/04.webp" class="zoom"><img src="img/jump/04.webp" alt="Hydraulic jump: long section and loads, step 4: Discharge and tailwater" loading="lazy" width="1900" height="1125"></a></figure>
+<aside class="tip"><p>The tailwater can also change in time: <strong>Level changes in time…</strong> takes a table of times and levels.</p></aside>
+</section>
+<section class="step" id="step-5">
+<h2><span class="step-number">5</span>Mesh and run</h2>
+<p>Make the mesh, then run. Fifteen seconds of simulated time are enough for the jump to form and settle in front of the gate.</p>
+<ol class="marks"><li>Click <strong>Mesh</strong> in the toolbar (or press <strong>F5</strong>).</li><li><strong>End time</strong>: <code>15</code> s.</li><li><strong>Processor cores</strong>: <code>4</code>.</li><li>Click <strong>Run</strong> in the toolbar (or press <strong>F6</strong>).</li></ol>
+<figure><a href="img/jump/05.webp" class="zoom"><img src="img/jump/05.webp" alt="Hydraulic jump: long section and loads, step 5: Mesh and run" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-6">
+<h2><span class="step-number">6</span>The long section</h2>
+<p>When the run has finished, go to <strong>Results</strong> and press <strong>Long section</strong>. EasyFOAM integrates the water across the channel at stations along it and draws the bed, the water surface and the energy line, with the Froude number below. A jump oscillates, so average over the last <strong>5</strong> saved times.</p>
+<p>The text lists the jump it found: the depth and Froude number of the jet before it, the depth after it, and both next to Bélanger's values. On this coarse mesh they agree within about 5 to 10 %; averaging over a longer run brings them closer.</p>
+<ol class="marks"><li><strong>Average over</strong>: <code>5</code> saved times.</li><li>Press <strong>Long section</strong>.</li><li>The jump: its sequent depth and energy loss next to Bélanger's (within about 5 to 10 %).</li></ol>
+<figure><a href="img/jump/06.webp" class="zoom"><img src="img/jump/06.webp" alt="Hydraulic jump: long section and loads, step 6: The long section" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-7">
+<h2><span class="step-number">7</span>Pressure on the gate</h2>
+<p>Pick the gate under <strong>Structure</strong> and press <strong>Pressure along it</strong>. The plot shows the pressure head down the upstream face of the gate: zero in the air at the top, rising with depth in the reservoir.</p>
+<ol class="marks"><li><strong>Structure</strong>: <code>gate</code>.</li><li>Press <strong>Pressure along it</strong>.</li></ol>
+<figure><a href="img/jump/07.webp" class="zoom"><img src="img/jump/07.webp" alt="Hydraulic jump: long section and loads, step 7: Pressure on the gate" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-8">
+<h2><span class="step-number">8</span>The force on the gate</h2>
+<p><strong>Loads</strong> adds up the pressure over the gate: the force on it, per metre width as the gate spans the channel, and the overturning moment about its downstream toe. For this flow the momentum balance between the reservoir and the jet gives about <strong>1290 N per metre</strong>; EasyFOAM finds about 1230.</p>
+<ol class="marks"><li>Press <strong>Loads</strong>.</li><li>Force and moment, in total and per metre width.</li><li><strong>Save table…</strong> writes the numbers to a CSV file.</li></ol>
+<figure><a href="img/jump/08.webp" class="zoom"><img src="img/jump/08.webp" alt="Hydraulic jump: long section and loads, step 8: The force on the gate" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+  <nav class="pager"><a class="prev" href="spillway.html"><span>Previous</span>Spillway from your own geometry</a><a class="next" href="tank.html"><span>Next</span>Contact tank: water age and a tracer test</a></nav>
+</main>
+</div>
+<div class="lightbox" hidden><img alt=""></div>
+<footer class="foot">
+  <p>EasyFOAM is free software (GPL-3.0-or-later). It is an independent project: it is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com and owner of the OPENFOAM® and OpenCFD® trade marks, and it is not affiliated with any other vendor of simulation software.</p>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>

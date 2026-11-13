@@ -35,6 +35,10 @@ def uses_snappy(project: Project) -> bool:
 
 
 def block_mesh_dict(project: Project) -> dict:
+    if project.channel is not None:  # a channel built in the program: blocks fitted to it
+        from easyfoam import channel
+
+        return channel.block_mesh_dict(project.channel)
     base = project.mesh.base
     (x0, y0, z0), (x1, y1, z1) = base.min, base.max
     vertices = [
@@ -85,6 +89,10 @@ def location_in_mesh(project: Project, case_dir: Path | None = None) -> list[flo
     mesh = project.mesh
     if mesh.location_in_mesh:
         return list(mesh.location_in_mesh)
+    if project.channel is not None:
+        from easyfoam import channel
+
+        return channel.inside_point(project.channel)
     if not mesh.fluid_inside:
         return auto_location_in_mesh(mesh.base)
     shape = next((s for s in project.shapes if s.name == mesh.fluid_inside), None)
@@ -256,9 +264,14 @@ def mesh_steps(project: Project) -> list[Step]:
 def predicted_patches(project: Project) -> list[Patch]:
     """The patches the mesh will have, for setting boundaries before meshing."""
     seen: dict[str, str] = {}
-    for face in FACES:
-        info = project.mesh.base.faces[face]
-        seen.setdefault(info.name, info.type)
+    if project.channel is not None:
+        from easyfoam import channel
+
+        seen.update((p.name, p.type) for p in channel.patches(project.channel))
+    else:
+        for face in FACES:
+            info = project.mesh.base.faces[face]
+            seen.setdefault(info.name, info.type)
     if uses_snappy(project):
         for shape in wall_shapes(project):
             if len(shape.regions) > 1:

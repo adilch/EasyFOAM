@@ -154,6 +154,75 @@ class Boundary:
     wave_model: str = "StokesII"  # StokesI | StokesII
     contact_angle: float = 90.0  # degrees, of the water surface on a wall (90 = neutral)
     tracer_value: float = 0.0  # concentration of the tracer(s) entering through an inlet
+    tracer_values: dict[str, float] = field(default_factory=dict)  # per tracer, overrides tracer_value
+    #: a flow-rate inlet whose discharge changes in time (a hydrograph): [[time s, m3/s], ...]; empty = constant
+    flow_series: list[list[float]] = field(default_factory=list)
+    #: a tailwater that changes in time (a tide, a rising river): [[time s, level m], ...]; empty = constant
+    level_series: list[list[float]] = field(default_factory=list)
+    roughness: str = "smooth"  # walls: smooth | ks (sand-grain roughness height) | manning
+    ks: float = 0.0  # m, equivalent sand-grain roughness height
+    manning: float = 0.0  # Manning's n, s/m^(1/3)
+
+
+#: Strickler: Manning's n = ks^(1/6) / (8.25 sqrt(g)); used to turn n into a roughness height
+STRICKLER = 8.25 * 9.81**0.5
+
+
+def ks_from_manning(n: float) -> float:
+    """Equivalent sand-grain roughness height (m) of a Manning's n (Strickler)."""
+    return (STRICKLER * n) ** 6 if n > 0 else 0.0
+
+
+def manning_from_ks(ks: float) -> float:
+    return ks ** (1.0 / 6.0) / STRICKLER if ks > 0 else 0.0
+
+
+def roughness_height(bc: Boundary) -> float:
+    """The sand-grain roughness height (m) a wall boundary asks for; 0 for a smooth wall."""
+    if bc.kind not in ("wall", "movingWall"):
+        return 0.0
+    if bc.roughness == "ks":
+        return max(0.0, float(bc.ks))
+    if bc.roughness == "manning":
+        return ks_from_manning(float(bc.manning))
+    return 0.0
+
+
+def series_entry(series: list[list[float]]) -> str:
+    """A time series as an OpenFOAM table, linear between the points and constant beyond them."""
+    return "table (" + " ".join(f"({float(t):g} {float(v):g})" for t, v in series) + ")"
+
+
+def series_value(series: list[list[float]], time: float) -> float:
+    times = [float(t) for t, _ in series]
+    values = [float(v) for _, v in series]
+    if time <= times[0]:
+        return values[0]
+    for (t0, v0), (t1, v1) in zip(zip(times, values), zip(times[1:], values[1:])):
+        if time <= t1:
+            return v0 if t1 == t0 else v0 + (v1 - v0) * (time - t0) / (t1 - t0)
+    return values[-1]
+
+
+@dataclass
+class RatingCurve:
+    """A run that steps through several discharges to measure the head over a structure at each."""
+
+    discharges: list[float] = field(default_factory=list)  # m3/s, in the order they are run
+    hold: float = 10.0  # s each discharge is held, long enough for the level to settle
+    ramp: float = 1.0  # s to change from one discharge to the next
+    gauge: int = 0  # which probe point measures the upstream water level
+    crest: float | None = None  # m, crest level of the structure; None = the top of the highest wall shape
+    inlet: str = "inlet"  # the flow-rate inlet that the discharges are given to
+
+
+def staircase(discharges: list[float], hold: float, ramp: float = 1.0) -> list[list[float]]:
+    """The inflow of a rating-curve run: each discharge held for ``hold`` seconds, short ramps between."""
+    series = [[0.0, float(discharges[0])]]
+    for k in range(1, len(discharges)):
+        start = k * hold
+        series += [[start, float(discharges[k - 1])], [start + ramp, float(discharges[k])]]
+    return series
 
 
 @dataclass
@@ -187,7 +256,51 @@ class Tracer:
     """A passive quantity carried by the flow (dye, pollutant, age)."""
 
     name: str = "tracer"
-    diffusivity: float = 1e-09  # m2/s
+    diffusivity: float = 1e-09  # m2/s, molecular; turbulent mixing is added when a turbulence model is on
+    decay: float = 0.0  # 1/s, first-order decay (chlorine, bacteria die-off): dC/dt = -decay * C
+    kind: str = "concentration"  # concentration | age (the time since the water entered, in seconds)
+
+
+#: turbulent Schmidt number: how much less a tracer mixes than momentum in turbulent flow
+SCHMIDT_TURBULENT = 0.7
+
+#: cross-sections the channel builder makes
+CHANNEL_SECTIONS = ("rectangular", "trapezoidal", "compound", "circular")
+
+
+@dataclass
+class ChannelSegment:
+    """A piece of a channel's centreline seen from above: straight, or a bend."""
+
+    kind: str = "straight"  # straight | bend
+    length: float = 20.0  # m, straight pieces
+    radius: float = 20.0  # m, bends: radius of the centreline
+    angle: float = 90.0  # degrees, bends: positive turns left (anticlockwise seen from above), negative right
+
+    def run(self) -> float:
+        """Its length along the centreline, m."""
+        if self.kind == "bend":
+            return abs(self.radius * self.angle) * 3.141592653589793 / 180.0
+        return self.length
+
+
+@dataclass
+class Channel:
+    """An open channel built in the program: a cross-section swept along a centreline, falling at the bed slope."""
+
+    section: str = "trapezoidal"  # one of CHANNEL_SECTIONS
+    bottom_width: float = 2.0  # m, bed of the main channel
+    depth: float = 1.0  # m, height of the main channel banks
+    side_slope: float = 1.5  # banks, horizontal per vertical (0 = vertical walls)
+    berm_width: float = 4.0  # m, compound: width of each floodplain
+    berm_depth: float = 0.6  # m, compound: height of the outer banks above the floodplains
+    berm_slope: float = 2.0  # compound: outer banks, horizontal per vertical
+    diameter: float = 1.2  # m, circular culvert
+    slope: float = 0.001  # bed slope, falling downstream, m per m
+    segments: list[ChannelSegment] = field(default_factory=lambda: [ChannelSegment()])
+    freeboard: float = 0.3  # m of air above the banks (the atmosphere is above that)
+    cell_size: float = 0.1  # m
+    water_depth: float = 0.5  # m of water above the bed at the start (0 = dry)
 
 
 @dataclass
@@ -204,6 +317,8 @@ class Project:
     probes: list[list[float]] = field(default_factory=list)  # points where p and U are recorded
     flow_monitors: list[str] = field(default_factory=list)  # boundaries whose discharge is recorded
     tracers: list[Tracer] = field(default_factory=list)
+    rating: RatingCurve = field(default_factory=RatingCurve)
+    channel: Channel | None = None  # an open channel built in the program; it replaces the base mesh
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)

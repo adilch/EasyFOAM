@@ -50,6 +50,29 @@ def read_discharge(case_dir: Path) -> dict[str, tuple[list[float], list[float]]]
     return found
 
 
+def read_level_elevations(case_dir: Path, gauges: list[list[float]]) -> Series:
+    """Times and, per gauge, the elevation of the water surface (gauge point + height above it)."""
+    times, columns = _read_joined(Path(case_dir) / "postProcessing" / "waterLevel", "height.dat")
+    above = columns[1::2]
+    return times, [[float(gauges[i][2]) + h for h in heights] for i, heights in enumerate(above) if i < len(gauges)]
+
+
+TRACER_PREFIX = "tracerOut_"
+
+
+def read_outlet_tracers(case_dir: Path) -> dict[str, tuple[list[float], list[list[float]]]]:
+    """``{boundary: (times, per tracer: flow-weighted mean concentration leaving through it)}``."""
+    root = Path(case_dir) / "postProcessing"
+    found: dict[str, tuple[list[float], list[list[float]]]] = {}
+    if not root.is_dir():
+        return found
+    for folder in sorted(d for d in root.iterdir() if d.is_dir() and d.name.startswith(TRACER_PREFIX)):
+        times, series = _read_joined(folder, "surfaceFieldValue.dat")
+        if times and series:
+            found[folder.name[len(TRACER_PREFIX):]] = (times, series)
+    return found
+
+
 def read_water_levels(case_dir: Path) -> Series:
     """Times and, per gauge, the water depth above the bed."""
     times, columns = _read_joined(Path(case_dir) / "postProcessing" / "waterLevel", "height.dat")

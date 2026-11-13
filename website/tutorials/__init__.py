@@ -2,14 +2,18 @@
 
 from website.tutorials import (
     cavity,
+    channel,
     dambreak,
     draw,
     floating,
     gate,
     getting_started,
+    jump,
     pipe,
+    reach,
     sphere,
     spillway,
+    tank,
     waves,
     weir,
 )
@@ -26,4 +30,8 @@ ALL = [
     gate.TUTORIAL,
     floating.TUTORIAL,
     spillway.TUTORIAL,
+    jump.TUTORIAL,
+    tank.TUTORIAL,
+    channel.TUTORIAL,
+    reach.TUTORIAL,
 ]

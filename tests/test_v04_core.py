@@ -65,12 +65,10 @@ def test_free_surface_fields_use_water_fraction_and_pressure_without_hydrostatic
 
 def test_water_inlet_by_flow_rate_follows_the_water_level():
     f = fields()
-    assert f["U"]["boundaryField"]["inlet"] == {
-        "type": "variableHeightFlowRateInletVelocity",
-        "flowRate": 0.05,
-        "alpha": "alpha.water",
-        "value": "uniform (0 0 0)",
-    }
+    inlet = f["U"]["boundaryField"]["inlet"]
+    assert inlet["type"] == "uniformFixedValue" and inlet["uniformValue"]["type"] == "expression"
+    # spread over the wetted part: the water coming in is exactly the flow rate (since v0.10)
+    assert str(inlet["uniformValue"]["expression"]) == '"-normal()*(0.05)*a/(weightSum(a*a) + 1e-15)"'
     assert f["alpha.water"]["boundaryField"]["inlet"] == {
         "type": "variableHeightFlowRate", "lowerBound": 0, "upperBound": 1, "value": "uniform 0",
     }  # fmt: skip

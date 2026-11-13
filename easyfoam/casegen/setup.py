@@ -8,7 +8,7 @@ from collections.abc import Sequence
 
 from easyfoam.casegen import freesurface, motion
 from easyfoam.foam.boundaryfile import Patch
-from easyfoam.model import Boundary, Project
+from easyfoam.model import SCHMIDT_TURBULENT, Boundary, Project, roughness_height, series_entry
 from easyfoam.runtime import Step
 from easyfoam.solvers import POST_FUNCTIONS, solver_spec, turbulence_fields
 
@@ -93,7 +93,8 @@ def _entry(field: str, patch: Patch, bc: Boundary, project: Project, internal: d
         if bc.kind in ("velocityInlet", "movingWall"):
             return {"type": "fixedValue", "value": _vector(bc.velocity)}
         if bc.kind == "flowRateInlet":
-            return {"type": "flowRateInletVelocity", "volumetricFlowRate": bc.flow_rate, "value": "uniform (0 0 0)"}
+            rate = series_entry(bc.flow_series) if bc.flow_series else bc.flow_rate
+            return {"type": "flowRateInletVelocity", "volumetricFlowRate": rate, "value": "uniform (0 0 0)"}
         if bc.kind == "atmosphere":
             return {"type": "pressureInletOutletVelocity", "value": "uniform (0 0 0)"}
         if bc.kind in OUTLET_LIKE:
@@ -117,6 +118,13 @@ def _entry(field: str, patch: Patch, bc: Boundary, project: Project, internal: d
         if low_re:
             return {"type": "nutLowReWallFunction", "value": "uniform 0"}
         needs_k = "k" in turbulence_fields(model)
+        ks = roughness_height(bc)
+        if ks > 0:  # a rough wall: the wall function shifts the log law by the roughness
+            if needs_k:
+                return {"type": "nutkRoughWallFunction", "Ks": f"uniform {ks:g}", "Cs": "uniform 0.5",
+                        "value": "uniform 0"}  # fmt: skip
+            return {"type": "nutURoughWallFunction", "roughnessHeight": ks, "roughnessConstant": 0.5,
+                    "roughnessFactor": 1, "value": "uniform 0"}  # fmt: skip
         function = "nutkWallFunction" if needs_k else "nutUSpaldingWallFunction"
         return {"type": function, "value": "uniform 0"}
     if is_wall:
@@ -166,6 +174,10 @@ def field_dicts(project: Project, patches: Sequence[Patch]) -> dict[str, tuple[s
     return out
 
 
+#: boundary kinds where the water leaves the domain
+OUTLET_KINDS = ("pressureOutlet", "freeOutflow", "waterLevelOutlet", "waveOutlet")
+
+
 def tracer_fields(project: Project, patches: Sequence[Patch], boundaries: dict[str, Boundary]) -> dict:
     """Field files of the tracers: they enter through inlets with the given concentration."""
     out: dict[str, tuple[str, dict]] = {}
@@ -178,8 +190,14 @@ def tracer_fields(project: Project, patches: Sequence[Patch], boundaries: dict[s
             elif bc.kind == "slip":
                 entries[patch.name] = {"type": "slip"}
             elif bc.kind in ("velocityInlet", "flowRateInlet", "waveInlet"):
-                entries[patch.name] = {"type": "fixedValue", "value": f"uniform {bc.tracer_value:g}"}
+                value = 0.0 if tracer.kind == "age" else bc.tracer_values.get(tracer.name, bc.tracer_value)
+                entries[patch.name] = {"type": "fixedValue", "value": f"uniform {value:g}"}
             elif bc.kind in ("wall", "movingWall"):
+                entries[patch.name] = {"type": "zeroGradient"}
+            elif bc.kind in OUTLET_KINDS:
+                # Water drawn back in by an eddy at an outlet is water that has just left: it keeps its own
+                # concentration and age. A fixed 0 there diluted the outflow and let tracer diffuse out unseen,
+                # so a tracer test never reached 1 and its residence times came out too long.
                 entries[patch.name] = {"type": "zeroGradient"}
             else:
                 entries[patch.name] = {"type": "inletOutlet", "inletValue": "uniform 0", "value": "uniform 0"}
@@ -188,6 +206,38 @@ def tracer_fields(project: Project, patches: Sequence[Patch], boundaries: dict[s
             {"dimensions": "[0 0 0 0 0 0 0]", "internalField": "uniform 0", "boundaryField": entries},
         )
     return out
+
+
+def tracer_function(project: Project, tracer) -> dict:
+    """The scalarTransport function object that carries a tracer, with its decay or ageing."""
+    entry = {
+        "type": "scalarTransport",
+        "libs": ["solverFunctionObjects"],
+        "field": tracer.name,
+        "resetOnStartUp": False,
+        "writeControl": "writeTime",
+    }
+    if project.physics.turbulence == "laminar":
+        entry["D"] = tracer.diffusivity
+    else:  # molecular plus turbulent mixing: D = alphaD nu + alphaDt nut
+        entry["alphaD"] = tracer.diffusivity / max(float(project.physics.nu), 1e-30)
+        entry["alphaDt"] = 1.0 / SCHMIDT_TURBULENT
+    source = None
+    if tracer.kind == "age":
+        source = [1, 0]  # each second in the domain adds a second of age
+        entry["bounded01"] = False
+    elif tracer.decay > 0:
+        source = [0, -float(tracer.decay)]  # implicit: -decay * C
+    if source is not None:
+        entry["fvOptions"] = {
+            f"{tracer.name}Source": {
+                "type": "scalarSemiImplicitSource",
+                "selectionMode": "all",
+                "volumeMode": "specific",
+                "sources": {tracer.name: source},
+            }
+        }
+    return entry
 
 
 def _tidy(x: float) -> float | int:
@@ -258,14 +308,7 @@ def _functions(project: Project, patches: Sequence[Patch]) -> dict:
                 "locations": [list(point) for point in project.probes],
             }
     for tracer in project.tracers:
-        functions[f"tracer_{tracer.name}"] = {
-            "type": "scalarTransport",
-            "libs": ["solverFunctionObjects"],
-            "field": tracer.name,
-            "D": tracer.diffusivity,
-            "resetOnStartUp": False,
-            "writeControl": "writeTime",
-        }
+        functions[f"tracer_{tracer.name}"] = tracer_function(project, tracer)
     existing = {p.name for p in patches}
     for name in project.flow_monitors:
         if name in existing:
@@ -283,6 +326,22 @@ def _functions(project: Project, patches: Sequence[Patch]) -> dict:
                 **({"weightField": freesurface.WATER} if multiphase else {}),
                 "fields": ["phi"],
             }
+            concentrations = [t.name for t in project.tracers]
+            if concentrations:
+                # flow-weighted mean concentration (or age) of what leaves through this boundary
+                functions[f"tracerOut_{name}"] = {
+                    "type": "surfaceFieldValue",
+                    "libs": ["fieldFunctionObjects"],
+                    "writeControl": "timeStep",
+                    "writeInterval": 1,
+                    "log": False,
+                    "writeFields": False,
+                    "regionType": "patch",
+                    "name": name,
+                    "operation": "weightedAverage",
+                    "weightFields": ["phi", freesurface.WATER] if multiphase else ["phi"],
+                    "fields": concentrations,
+                }
     if on:
         functions["forceCoeffs"] = {
             "type": "forceCoeffs",
@@ -367,7 +426,10 @@ def fv_schemes(project: Project) -> dict:
             scheme = f"linearUpwind grad({name})" if accurate else "upwind"
             div[f"div(phi,{name})"] = f"{bounded}Gauss {scheme}"
     for tracer in project.tracers:
-        div[f"div(phi,{tracer.name})"] = f"{bounded}Gauss limitedLinear 1"
+        # Steady runs carry tracers with upwind: the equation is then linear, settles in one solve once the flow has,
+        # and balances exactly. limitedLinear never settles there: its limiter flips from one iteration to the next,
+        # which biased the age of the water by 8 % and made a decaying tracer blow up.
+        div[f"div(phi,{tracer.name})"] = "bounded Gauss upwind" if steady else "Gauss limitedLinear 1"
     correction = "corrected" if accurate else "limited corrected 0.5"
     return {
         "ddtSchemes": {"default": "steadyState" if steady else "Euler"},
@@ -380,20 +442,43 @@ def fv_schemes(project: Project) -> dict:
     }
 
 
+# a tracer is solved in full every time step or iteration: the amount carried in and out must balance
+TRACER_SOLVER = {"solver": "PBiCGStab", "preconditioner": "DILU", "tolerance": 1e-09, "relTol": 0, "maxIter": 2000}
+
+
+def tracer_relaxation(tracer, steady: bool) -> float:
+    """The equation relaxation factor of a tracer; 0 means none.
+
+    OpenFOAM relaxes an equation only when its factor is above 0, and any factor, even 1, forces the matrix to be
+    diagonally dominant through a correction that lags one iteration behind: that left the age of the water in a
+    contact tank 8 % too high. So tracers are not relaxed, except a decaying one in a steady run. OpenFOAM applies a
+    decay explicitly (a negative semi-implicit coefficient goes to the source side), and unrelaxed iterations blow
+    up once the decay is faster than the water is renewed in dead zones. 1/(1 + k * 1000 s) keeps cells whose water
+    stays up to about half an hour stable; the converged answer does not depend on it.
+    """
+    if not steady or tracer.kind == "age" or tracer.decay <= 0:
+        return 0
+    return min(0.9, 1.0 / (1.0 + float(tracer.decay) * 1000.0))
+
+
 def _fv_solution(project: Project) -> dict:
-    tracer_solver = {"solver": "smoothSolver", "smoother": "symGaussSeidel", "tolerance": 1e-08, "relTol": 0.01}
+    solution = _flow_solution(project)
+    steady = solver_spec(project.physics.solver).steady
+    for tracer in project.tracers:
+        solution["solvers"][tracer.name] = dict(TRACER_SOLVER)
+        factors = solution.setdefault("relaxationFactors", {}).setdefault("equations", {})
+        factors[tracer.name] = tracer_relaxation(tracer, steady)
+    return solution
+
+
+def _flow_solution(project: Project) -> dict:
     if solver_spec(project.physics.solver).multiphase:
-        solution = freesurface.fv_solution(project)
-        for tracer in project.tracers:
-            solution["solvers"][tracer.name] = dict(tracer_solver)
-        return solution
+        return freesurface.fv_solution(project)
     steady = solver_spec(project.physics.solver).steady
     accurate = project.physics.numerics == "accurate"
     pressure = {"solver": "GAMG", "smoother": "GaussSeidel", "tolerance": 1e-06, "relTol": 0.05}
     transport = {"solver": "smoothSolver", "smoother": "symGaussSeidel", "tolerance": 1e-08, "relTol": 0.1}
     solvers: dict = {"p": pressure, TRANSPORTED: transport}
-    for tracer in project.tracers:
-        solvers[tracer.name] = dict(tracer_solver)
     extra: dict = {}
     if project.physics.potential_init:
         solvers["Phi"] = {**pressure, "relTol": 0.01}

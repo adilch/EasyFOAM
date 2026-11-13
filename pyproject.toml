@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "easyfoam"
-version = "0.8.0"
+version = "0.12.0"
 description = "An open-source desktop front-end for OpenFOAM: geometry, meshing, case setup, run and results in one window."
 readme = "README.md"
 license = "GPL-3.0-or-later"

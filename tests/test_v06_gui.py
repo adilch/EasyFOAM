@@ -46,10 +46,10 @@ def test_tracer_and_adaptive_refinement_settings(qapp):
     project.physics.solver = "interFoam"
     panel = PhysicsPanel()
     panel.load(project)
-    type_into(panel.tracer_name, "dye")
-    type_into(panel.tracer_diffusivity, "1e-6")
+    panel.add_tracer("dye")
+    panel.set_tracer(0, diffusivity=1e-6)
     assert project.tracers == [Tracer("dye", 1e-06)]
-    type_into(panel.tracer_name, "")
+    panel.remove_tracer(0)
     assert project.tracers == []
     panel.adaptive.setValue(2)
     assert project.physics.adaptive_levels == 2

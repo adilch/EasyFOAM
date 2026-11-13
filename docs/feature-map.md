@@ -59,7 +59,7 @@ current version, through WSL or natively), keeps **plain case folders** that
 remain usable by hand, and has no cell or core limits. That is the space
 EasyFOAM aims at. If that distinction does not matter to you, use BARAM.
 
-## Where EasyFOAM stands (v0.8)
+## Where EasyFOAM stands (v0.12)
 
 Legend: done = works and is tested end to end; partial; planned = see roadmap.
 
@@ -107,9 +107,22 @@ Legend: done = works and is tested end to end; partial; planned = see roadmap.
 | Live plot of where moving shapes are and how far a floating body has turned | done |
 | Hinged (rotating) gates, moorings and springs, large motion by overset meshes | planned |
 | Cavitating flow solver, irregular waves | planned |
-| Sediment, air entrainment | planned |
+| Long section of a free-surface result: water level, bed, energy line, Froude number, specific energy, discharge per station, along a straight or curved centreline, averaged over saved times | done |
+| Hydraulic jumps found and compared with Bélanger (sequent depth, energy loss, USBR type); control sections compared with critical depth | done |
+| Pressure along a structure, and the force and overturning moment on it (per metre width when it spans the channel) | done |
+| Bed shear stress and sediment mobility (Shields critical stress) on the bed | done |
+| Wall roughness given as Manning's n or a sand-grain height (rough wall functions) | done |
+| Inflow hydrographs and tailwater levels that change in time; the inflow lets in exactly the water asked for | done |
+| Rating-curve sweep: a run steps through discharges and gives head, weir coefficient and steadiness for each | done |
+| 1D gradually-varied flow profile with Manning's n drawn over the long section | done |
+| Several tracers, each with its own inlet concentrations; first-order decay (chlorine); the age of the water | done |
+| Tracer test in the frozen flow (step or pulse): T10, T50, T90, mean residence time, baffling factor, Morrill index, the residual of a decaying substance at the outlet | done |
+| Channel builder: rectangular, trapezoidal, compound (floodplains) or circular culvert sections, bed slope, straight pieces and bends; mesh fitted to the channel by blockMesh, starting water as a cell zone | done |
+| Terrain from XYZ points, ESRI ASCII grids, GeoTIFF rasters and LandXML surfaces: local coordinates, turned to run along x, resampled and closed into a solid that the mesh is cut from | done |
+| Sediment transport and bed change, air entrainment | planned |
 | Boundary presets: velocity inlet, pressure outlet, wall, moving wall, slip, symmetry/empty | done |
-| Wider boundary-condition library, time tables, profiles | planned |
+| Time tables for inflow and tailwater | done |
+| Wider boundary-condition library, profiles | planned |
 | Material list (air, water, oils) | done (small) |
 | Numerics presets (robust / accurate) | done; per-term editing planned |
 | Parallel run with automatic decomposition and reconstruction | done |

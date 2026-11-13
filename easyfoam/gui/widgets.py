@@ -13,15 +13,16 @@ class FloatEdit(QLineEdit):
 
     changed = Signal(float)
 
-    def __init__(self, value: float = 0.0, parent: QWidget | None = None) -> None:
+    def __init__(self, value: float = 0.0, parent: QWidget | None = None, digits: int = 6) -> None:
         super().__init__(parent)
         self._value = float(value)
+        self._digits = digits  # significant digits shown: survey coordinates need more than the usual six
         self.setMinimumWidth(60)
         self._show()
         self.editingFinished.connect(self._commit)
 
     def _show(self) -> None:
-        self.setText(f"{self._value:g}")
+        self.setText(f"{self._value:.{self._digits}g}")
 
     def _commit(self) -> None:
         try:

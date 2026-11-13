@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from easyfoam.foam.boundaryfile import Patch
-from easyfoam.foam.dictfmt import Named
+from easyfoam.foam.dictfmt import Named, Q
 from easyfoam.model import Boundary, Project
 from easyfoam.solvers import turbulence_fields
 
@@ -33,7 +33,7 @@ def _entry(field: str, patch: Patch, bc: Boundary, base) -> dict:
         # ambient pressure measured from the tailwater level (see href_dict): hydrostatic below it
         if field == "U":
             return {"type": "pressureInletOutletVelocity", "value": ZERO_VECTOR}
-        if field == "p_rgh":
+        if field == "p_rgh":  # a level that changes in time is set in field_dicts (tailwater_pressure)
             return {"type": "totalPressure", "p0": "uniform 0"}
         return {"type": "zeroGradient"}
     if bc.kind in ("waveInlet", "waveOutlet"):
@@ -47,13 +47,7 @@ def _entry(field: str, patch: Patch, bc: Boundary, base) -> dict:
         if bc.kind in ("velocityInlet", "movingWall"):
             return {"type": "fixedValue", "value": base._vector(bc.velocity)}
         if bc.kind == "flowRateInlet":
-            # the inflow is spread over the wetted part of the inlet, whatever the water level is
-            return {
-                "type": "variableHeightFlowRateInletVelocity",
-                "flowRate": bc.flow_rate,
-                "alpha": WATER,
-                "value": ZERO_VECTOR,
-            }
+            return inflow_velocity(bc)
         if bc.kind == "atmosphere":
             return {"type": "pressureInletOutletVelocity", "value": ZERO_VECTOR}
         if bc.kind == "pressureOutlet":
@@ -83,6 +77,29 @@ def _entry(field: str, patch: Patch, bc: Boundary, base) -> dict:
             "value": "uniform 0",
         }
     return {"type": "zeroGradient"}
+
+
+def inflow_velocity(bc: Boundary) -> dict:
+    """``U`` on an inlet that lets in a volume of water per second, spread over the wetted part of the inlet.
+
+    Each face gets a speed in proportion to its water fraction a: U = -n Q a / sum(a² A). The water coming in,
+    sum(a U.S), is then exactly Q however smeared the water surface is across the inlet. OpenFOAM's own
+    variableHeightFlowRateInletVelocity sets the flow of the water-air mix instead, which fell up to 16 % short.
+    """
+    value: dict = {
+        "type": "expression",
+        # the water fraction kept within 0 and 1 (min and max reduce over the patch in expressions: use mag)
+        "variables": [Q("b = 0.5*(alpha.water + mag(alpha.water))"), Q("a = 0.5*(b + 1 - mag(b - 1))")],
+    }
+    if bc.flow_series:
+        value["functions<scalar>"] = {
+            "inflow": {"type": "table", "values": [[float(t), float(q)] for t, q in sorted(bc.flow_series)]}
+        }
+        rate = "fn:inflow(time())"
+    else:
+        rate = f"({float(bc.flow_rate):.10g})"
+    value["expression"] = Q(f"-normal()*{rate}*a/(weightSum(a*a) + 1e-15)")
+    return {"type": "uniformFixedValue", "value": ZERO_VECTOR, "uniformValue": value}
 
 
 def field_dicts(project: Project, patches: Sequence[Patch]) -> dict[str, tuple[str, dict]]:
@@ -117,6 +134,10 @@ def field_dicts(project: Project, patches: Sequence[Patch]) -> dict[str, tuple[s
     from easyfoam.casegen import motion
 
     motion.apply_wall_velocity(project, patches, out)
+    for patch in patches:
+        bc = boundaries[patch.name]
+        if bc.kind == "waterLevelOutlet" and bc.level_series:  # a tailwater that rises and falls
+            out["p_rgh"][1]["boundaryField"][patch.name] = tailwater_pressure(project, patches, bc.level_series)
     out.update(base.tracer_fields(project, patches, boundaries))
     return out
 
@@ -216,13 +237,15 @@ def _corner(values: Sequence[float]) -> str:
 def set_fields_dict(project: Project) -> dict:
     """Where the water is at the start: air everywhere, water in the listed boxes."""
     water = ["volScalarFieldValue", WATER, 1]
-    return {
-        "defaultFieldValues": ["volScalarFieldValue", WATER, 0],
-        "regions": [
-            Named("boxToCell", {"box": f"{_corner(box[:3])} {_corner(box[3:6])}", "fieldValues": list(water)})
-            for box in project.physics.water_regions
-        ],
-    }
+    regions = [
+        Named("boxToCell", {"box": f"{_corner(box[:3])} {_corner(box[3:6])}", "fieldValues": list(water)})
+        for box in project.physics.water_regions
+    ]
+    if project.channel is not None:  # a built channel starts filled to its initial water depth
+        from easyfoam import channel
+
+        regions += channel.water_regions(project.channel)
+    return {"defaultFieldValues": ["volScalarFieldValue", WATER, 0], "regions": regions}
 
 
 def up_direction(project: Project) -> list[float]:
@@ -238,13 +261,36 @@ def href_dict(project: Project, patches: Sequence[Patch]) -> dict | None:
     With it, the fixed ambient pressure on that outlet is hydrostatic below the given level.
     """
     levels = [
-        bc.level
+        float(min(bc.level_series)[1]) if bc.level_series else bc.level  # the level at the start
         for bc in (project.boundary_for(p.name, p.type) for p in patches)
         if bc.kind == "waterLevelOutlet"
     ]
     if not levels:
         return None
     return {"dimensions": "[0 1 0 0 0 0 0]", "value": levels[0]}
+
+
+def tailwater_pressure(project: Project, patches: Sequence[Patch], series) -> dict:
+    """``p_rgh`` on an outlet whose tailwater level follows ``series`` ([[t, level], ...]).
+
+    Fluid at rest below a level L has ``p_rgh = rho g (L - hRef)``, whatever it is. Taking ``rho`` from the cells
+    next to each face gives water the tailwater's hydrostatic pressure, so the level inside follows, while air stays
+    at ambient pressure: values fixed from the level alone pushed water pressure into air cells where the water
+    had not yet risen, and drove the air at hundreds of metres a second.
+    """
+    reference = href_dict(project, patches)
+    href = float(reference["value"]) if reference else 0.0
+    g = sum(float(c) ** 2 for c in project.physics.gravity) ** 0.5
+    table = [[float(t), float(level)] for t, level in sorted(series)]
+    return {
+        "type": "uniformFixedValue",
+        "value": "uniform 0",
+        "uniformValue": {
+            "type": "expression",
+            "functions<scalar>": {"tailwater": {"type": "table", "values": table}},
+            "expression": Q(f"internalField(rho)*{g:.10g}*(fn:tailwater(time()) - ({href:.10g}))"),
+        },
+    }
 
 
 def wave_properties(project: Project, patches: Sequence[Patch]) -> dict | None:

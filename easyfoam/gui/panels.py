@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import os
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
@@ -35,9 +36,21 @@ from PySide6.QtWidgets import (
 from easyfoam import geometry
 from easyfoam.foam.boundaryfile import Patch
 from easyfoam.gui.icons import icon
+from easyfoam.gui.series import describe as describe_series
 from easyfoam.gui.style import set_primary
 from easyfoam.gui.widgets import FloatEdit, VectorEdit
-from easyfoam.model import CONSTRAINT_TYPES, FACES, KINDS_FOR_TYPE, BaseFace, Boundary, Project, Shape, Tracer
+from easyfoam.model import (
+    CONSTRAINT_TYPES,
+    FACES,
+    KINDS_FOR_TYPE,
+    BaseFace,
+    Boundary,
+    Project,
+    Shape,
+    Tracer,
+    ks_from_manning,
+    manning_from_ks,
+)
 from easyfoam.solvers import (
     MATERIALS,
     POST_FUNCTIONS,
@@ -185,6 +198,8 @@ class Panel(QWidget):
 
 class GeometryPanel(Panel):
     selection_changed = Signal(str)  # name of the selected shape
+    channel_requested = Signal()  # build or change an open channel
+    terrain_requested = Signal()  # bring in the ground from a survey
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -217,6 +232,26 @@ class GeometryPanel(Panel):
         buttons = QHBoxLayout()
         for b in (import_button, add_button, rename_button, remove_button):
             buttons.addWidget(b)
+        self.channel_button = QPushButton(icon("flow-channel"), " Channel…")
+        self.channel_button.setToolTip(
+            "Build an open channel: a cross-section (rectangular, trapezoidal, compound or a culvert) swept along "
+            "straight pieces and bends at a bed slope. Its mesh is fitted to it and replaces the base mesh."
+        )
+        self.channel_button.clicked.connect(self.channel_requested)
+        self.terrain_button = QPushButton(icon("flow-terrain"), " Terrain…")
+        self.terrain_button.setToolTip(
+            "Bring in the ground of a river reach or a floodplain from a survey: XYZ points, an ESRI ASCII grid, "
+            "a GeoTIFF or a LandXML surface. The water flows over it."
+        )
+        self.terrain_button.clicked.connect(self.terrain_requested)
+        self.remove_channel_button = QPushButton(icon("trash-2"), " Remove channel")
+        self.remove_channel_button.clicked.connect(self.remove_channel)
+        self.channel_summary = _hint("")
+        channel_row = QHBoxLayout()
+        channel_row.addWidget(self.channel_button)
+        channel_row.addWidget(self.terrain_button)
+        channel_row.addWidget(self.remove_channel_button)
+        channel_row.addStretch(1)
 
         self.role = QComboBox()
         self.role.addItem("Solid surface (flow goes around it)", "wall")
@@ -343,6 +378,8 @@ class GeometryPanel(Panel):
         self.details.setLayout(self.form)
 
         layout = QVBoxLayout(self)
+        layout.addLayout(channel_row)
+        layout.addWidget(self.channel_summary)
         layout.addWidget(_hint("Surfaces to mesh around, and regions where the mesh should be finer."))
         layout.addWidget(self.empty_hint)
         layout.addWidget(self.shape_list, 1)
@@ -388,6 +425,33 @@ class GeometryPanel(Panel):
     def load(self, project: Project, case_dir: Path | None) -> None:
         self.project, self.case_dir = project, case_dir
         self._refill(select=0)
+        self.show_channel()
+
+    def show_channel(self) -> None:
+        """Say what channel the project has, if any."""
+        from easyfoam import channel as chm
+
+        ch = self.project.channel if self.project else None
+        self.remove_channel_button.setVisible(ch is not None)
+        self.channel_summary.setVisible(ch is not None)
+        if ch is None:
+            return
+        pieces = len(ch.segments)
+        try:
+            cells = f", about {chm.cell_count(ch):,} cells"
+        except (ValueError, ZeroDivisionError):
+            cells = ""
+        plural = "s" if pieces != 1 else ""
+        self.channel_summary.setText(
+            f"A {ch.section} channel, {chm.total_length(ch):.4g} m long in {pieces} piece{plural}, "
+            f"bed slope {ch.slope:g}, cells of {ch.cell_size:g} m{cells}. Its mesh replaces the base mesh; shapes "
+            "drawn here (piers, weirs) are cut out of it."
+        )
+
+    def remove_channel(self, _checked: bool = False) -> None:
+        self.apply(lambda: setattr(self.project, "channel", None))
+        self.show_channel()
+        self.empty_hint.setVisible(not self.project.shapes)
 
     def _refill(self, select: int) -> None:
         with self.loading():
@@ -398,7 +462,7 @@ class GeometryPanel(Panel):
                 )
             if self.project.shapes:
                 self.shape_list.setCurrentRow(max(0, min(select, len(self.project.shapes) - 1)))
-        self.empty_hint.setVisible(not self.project.shapes)
+        self.empty_hint.setVisible(not self.project.shapes and self.project.channel is None)
         self._show_shape(self.shape_list.currentRow())
 
     @staticmethod
@@ -750,6 +814,11 @@ class MeshPanel(Panel):
         base_form.addRow(fit)
         base = QGroupBox("Base mesh (box of cubes)")
         base.setLayout(base_form)
+        self.base_box = base
+        self.channel_note = _hint(
+            "The mesh follows the channel built in the Geometry step (its cell size is set there): the base "
+            "mesh below is not used. Shapes drawn in the channel are cut out of it with the settings further down."
+        )
 
         self.faces = QTableWidget(len(FACES), 3)
         self.faces.setHorizontalHeaderLabels(["Face", "Boundary name", "Type"])
@@ -805,8 +874,10 @@ class MeshPanel(Panel):
         self.generate.clicked.connect(self.generate_requested)
 
         layout = QVBoxLayout(self)
+        layout.addWidget(self.channel_note)
         layout.addWidget(base)
-        layout.addWidget(QLabel("Faces of the base mesh"))
+        self.faces_label = QLabel("Faces of the base mesh")
+        layout.addWidget(self.faces_label)
         layout.addWidget(self.faces)
         layout.addWidget(box)
         layout.addWidget(_hint(
@@ -854,6 +925,10 @@ class MeshPanel(Panel):
             self.location.setEnabled(not auto)
             if not auto:
                 self.location.set_value(mesh.location_in_mesh)
+        channel = project.channel is not None
+        self.channel_note.setVisible(channel)
+        for widget in (self.base_box, self.faces, self.faces_label):
+            widget.setEnabled(not channel)
         self._summarise()
 
     def _summarise(self) -> None:
@@ -970,12 +1045,23 @@ class PhysicsPanel(Panel):
         self.coeff_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.coeff_table.setFixedHeight(150)
         self.coeff_table.itemChanged.connect(self._coefficient_edited)
-        self.tracer_name = QLineEdit()
-        self.tracer_name.setPlaceholderText("leave empty for none, e.g. dye")
-        self.tracer_name.setToolTip(
-            "A passive quantity carried by the flow (dye, pollutant). Set its concentration at the inlets in Boundaries."
+        self.tracer_table = QTableWidget(0, 4)
+        self.tracer_table.setHorizontalHeaderLabels(["Name", "Carries", "Diffusivity [m²/s]", "Decay [1/h]"])
+        self.tracer_table.verticalHeader().setVisible(False)
+        self.tracer_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tracer_table.setFixedHeight(120)
+        self.tracer_table.setToolTip(
+            "Quantities carried by the flow. A concentration (dye, chlorine, a pollutant) enters at the inlets "
+            "with the value set in Boundaries and can decay at a first-order rate; the age of the water counts "
+            "the seconds since it entered (dead zones show up as old water)."
         )
-        self.tracer_diffusivity = FloatEdit(1e-09)
+        self.tracer_table.itemChanged.connect(self._tracer_cell_edited)
+        self.add_tracer_button = QPushButton(icon("plus"), " Add tracer")
+        self.add_age_button = QPushButton(icon("timer"), " Add water age")
+        self.remove_tracer_button = QPushButton(icon("trash-2"), " Remove")
+        self.add_tracer_button.clicked.connect(lambda: self.add_tracer())
+        self.add_age_button.clicked.connect(lambda: self.add_tracer("age", kind="age"))
+        self.remove_tracer_button.clicked.connect(self._remove_selected_tracer)
         self.adaptive = _spin(0, 4)
         self.adaptive.setSpecialValueText("off")
         self.adaptive.setToolTip(
@@ -1046,10 +1132,13 @@ class PhysicsPanel(Panel):
         self.water_box = QGroupBox("Water and air (free surface)")
         self.water_box.setLayout(water)
 
-        tracer = QFormLayout()
-        tracer.addRow("Name", self.tracer_name)
-        tracer.addRow("Diffusivity [m²/s]", self.tracer_diffusivity)
-        tracer_box = QGroupBox("Tracer")
+        tracer_buttons = QHBoxLayout()
+        for button in (self.add_tracer_button, self.add_age_button, self.remove_tracer_button):
+            tracer_buttons.addWidget(button)
+        tracer = QVBoxLayout()
+        tracer.addWidget(self.tracer_table)
+        tracer.addLayout(tracer_buttons)
+        tracer_box = QGroupBox("Tracers")
         tracer_box.setLayout(tracer)
 
         layout = QVBoxLayout(self)
@@ -1082,8 +1171,6 @@ class PhysicsPanel(Panel):
         self.max_velocity.changed.connect(lambda v: self._set("max_velocity", v))
         self.viscosity_model.currentIndexChanged.connect(self._viscosity_chosen)
         self.adaptive.valueChanged.connect(lambda v: self._set("adaptive_levels", v))
-        self.tracer_name.editingFinished.connect(self._tracer_edited)
-        self.tracer_diffusivity.changed.connect(lambda _v: self._tracer_edited())
 
     def load(self, project: Project) -> None:
         self.project = project
@@ -1108,10 +1195,8 @@ class PhysicsPanel(Panel):
             self.max_velocity.set_value(ph.max_velocity)
             self.viscosity_model.setCurrentIndex(max(0, self.viscosity_model.findData(ph.viscosity_model)))
             self.adaptive.setValue(ph.adaptive_levels)
-            tracer = project.tracers[0] if project.tracers else None
-            self.tracer_name.setText(tracer.name if tracer else "")
-            self.tracer_diffusivity.set_value(tracer.diffusivity if tracer else 1e-09)
         self._fill_coefficients()
+        self._fill_tracers()
         multiphase = ph.solver in SOLVERS and SOLVERS[ph.solver].multiphase
         self.water_box.setVisible(multiphase)
         self.potential.setEnabled(not multiphase)
@@ -1158,13 +1243,75 @@ class PhysicsPanel(Panel):
         except ValueError:
             self._fill_coefficients()
 
-    def _tracer_edited(self) -> None:
-        if self.project is None or self._loading:
+    # -- tracers
+    def _fill_tracers(self) -> None:
+        with self.loading():
+            tracers = self.project.tracers if self.project else []
+            self.tracer_table.setRowCount(len(tracers))
+            for row, tracer in enumerate(tracers):
+                self.tracer_table.setItem(row, 0, QTableWidgetItem(tracer.name))
+                carries = QTableWidgetItem("age of the water" if tracer.kind == "age" else "concentration")
+                carries.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                self.tracer_table.setItem(row, 1, carries)
+                self.tracer_table.setItem(row, 2, QTableWidgetItem(f"{tracer.diffusivity:g}"))
+                decay = QTableWidgetItem("" if tracer.kind == "age" else f"{tracer.decay * 3600:g}")
+                if tracer.kind == "age":
+                    decay.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                elif tracer.decay > 0:
+                    decay.setToolTip(f"Half-life {0.6931 / tracer.decay / 3600:.3g} h")
+                self.tracer_table.setItem(row, 3, decay)
+
+    def add_tracer(self, name: str | None = None, kind: str = "concentration", diffusivity: float = 1e-09,
+                   decay: float = 0.0) -> None:  # fmt: skip
+        """Add a tracer (a concentration) or the age of the water."""
+        if self.project is None:
             return
-        name = geometry.safe_name(self.tracer_name.text()) if self.tracer_name.text().strip() else ""
-        wanted = [Tracer(name, self.tracer_diffusivity.value())] if name else []
-        if wanted != self.project.tracers:
-            self.apply(lambda: setattr(self.project, "tracers", wanted))
+        taken = {t.name for t in self.project.tracers}
+        stem = geometry.safe_name(name or "tracer")
+        unique, n = stem, 1
+        while unique in taken:
+            n += 1
+            unique = f"{stem}{n}"
+        new = Tracer(unique, diffusivity, decay, kind)
+        self.apply(lambda: self.project.tracers.append(new))
+        self._fill_tracers()
+
+    def set_tracer(self, row: int, name: str | None = None, diffusivity: float | None = None,
+                   decay_per_hour: float | None = None) -> None:  # fmt: skip
+        tracer = self.project.tracers[row]
+
+        def edit():
+            if name is not None and name.strip():
+                tracer.name = geometry.safe_name(name)
+            if diffusivity is not None:
+                tracer.diffusivity = max(0.0, diffusivity)
+            if decay_per_hour is not None and tracer.kind != "age":
+                tracer.decay = max(0.0, decay_per_hour) / 3600.0
+
+        self.apply(edit)
+        self._fill_tracers()
+
+    def remove_tracer(self, row: int) -> None:
+        if self.project is not None and 0 <= row < len(self.project.tracers):
+            self.apply(lambda: self.project.tracers.pop(row))
+            self._fill_tracers()
+
+    def _remove_selected_tracer(self, _checked: bool = False) -> None:
+        self.remove_tracer(self.tracer_table.currentRow())
+
+    def _tracer_cell_edited(self, item) -> None:
+        if self._loading or self.project is None:
+            return
+        row, column, text = item.row(), item.column(), item.text().replace(",", ".")
+        try:
+            if column == 0:
+                self.set_tracer(row, name=text)
+            elif column == 2:
+                self.set_tracer(row, diffusivity=float(text))
+            elif column == 3:
+                self.set_tracer(row, decay_per_hour=float(text or 0))
+        except ValueError:
+            self._fill_tracers()
 
     def _solver_chosen(self) -> None:
         name = self.solver.currentData()
@@ -1296,20 +1443,66 @@ class BoundaryPanel(Panel):
             "below 90 the water wets the wall, above 90 it is repelled."
         )
         self.tracer_value = FloatEdit()
-        self.tracer_value.setToolTip("Concentration of the tracer in the fluid entering here (for example 1).")
+        self.tracer_value.setToolTip(
+            "Concentration of the tracers in the water entering here (for example 1, or 2 mg/L of chlorine)."
+        )
+        self.tracer_inlet = QTableWidget(0, 2)
+        self.tracer_inlet.setHorizontalHeaderLabels(["Tracer", "Concentration entering here"])
+        self.tracer_inlet.verticalHeader().setVisible(False)
+        self.tracer_inlet.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tracer_inlet.setFixedHeight(96)
+        self.tracer_inlet.itemChanged.connect(self._tracer_inlet_edited)
+        self.flow_series_button = QPushButton(icon("activity"), " Varies in time…")
+        self.flow_series_button.setToolTip("Give an inflow hydrograph: the discharge at a list of times.")
+        self.flow_series_hint = _hint("")
+        self.level_series_button = QPushButton(icon("activity"), " Varies in time…")
+        self.level_series_button.setToolTip(
+            "Give a tailwater that rises and falls (a tide, a flood): the level at a list of times."
+        )
+        self.level_series_hint = _hint("")
+        self.flow_series_button.clicked.connect(self._edit_flow_series)
+        self.level_series_button.clicked.connect(self._edit_level_series)
+        self.roughness = QComboBox()
+        self.roughness.addItem("Smooth", "smooth")
+        self.roughness.addItem("Sand-grain roughness height", "ks")
+        self.roughness.addItem("Manning's n", "manning")
+        self.roughness.setToolTip(
+            "How rough the wall is. Give Manning's n as for a 1D model, or the equivalent sand-grain roughness "
+            "height ks. Needs a turbulence model with wall functions."
+        )
+        self.ks_mm = FloatEdit(0.0)
+        self.ks_mm.setToolTip(
+            "Equivalent sand-grain roughness height in millimetres: about 0.3–3 for concrete, 2–3 times the "
+            "d90 of a gravel bed. Keep it below the height of the first cell at the wall."
+        )
+        self.manning = FloatEdit(0.013)
+        self.manning.setToolTip(
+            "Manning's n in s/m^(1/3): 0.012–0.015 finished concrete, 0.025–0.035 earth and gravel channels, "
+            "0.035–0.05 natural rivers with stones and weeds."
+        )
+        self.roughness_hint = _hint("")
 
         self.form = QFormLayout()
         self.form.addRow("Condition", self.kind)
         self.form.addRow("Velocity [m/s]", self.velocity)
         self.form.addRow("Pressure p/ρ [m²/s²]", self.pressure)
         self.form.addRow("Flow rate [m³/s]", self.flow_rate)
+        self.form.addRow(self.flow_series_button)
+        self.form.addRow(self.flow_series_hint)
         self.form.addRow("Share of water (0–1)", self.water_fraction)
         self.form.addRow("Water level [m]", self.level)
+        self.form.addRow(self.level_series_button)
+        self.form.addRow(self.level_series_hint)
         self.form.addRow("Wave height [m]", self.wave_height)
         self.form.addRow("Wave period [s]", self.wave_period)
         self.form.addRow("Wave theory", self.wave_model)
         self.form.addRow("Contact angle [°]", self.contact_angle)
+        self.form.addRow("Roughness", self.roughness)
+        self.form.addRow("Roughness height ks [mm]", self.ks_mm)
+        self.form.addRow("Manning's n [s/m^1/3]", self.manning)
+        self.form.addRow(self.roughness_hint)
         self.form.addRow("Tracer concentration", self.tracer_value)
+        self.form.addRow(self.tracer_inlet)
         self.form.addRow(self.hint)
         self.details = QGroupBox("Selected boundary")
         self.details.setLayout(self.form)
@@ -1331,6 +1524,9 @@ class BoundaryPanel(Panel):
         self.wave_model.currentIndexChanged.connect(lambda _i: self._edited())
         self.contact_angle.changed.connect(lambda _v: self._edited())
         self.tracer_value.changed.connect(lambda _v: self._edited())
+        self.roughness.currentIndexChanged.connect(lambda _i: self._edited())
+        self.ks_mm.changed.connect(lambda _v: self._edited())
+        self.manning.changed.connect(lambda _v: self._edited())
 
     def load(self, project: Project, patches: Sequence[Patch], from_mesh: bool = False) -> None:
         self.project, self.patches = project, list(patches)
@@ -1382,12 +1578,26 @@ class BoundaryPanel(Panel):
             self.wave_model.setCurrentIndex(max(0, self.wave_model.findData(bc.wave_model)))
             self.contact_angle.set_value(bc.contact_angle)
             self.tracer_value.set_value(bc.tracer_value)
+            self._fill_tracer_inlet(bc)
+            self.flow_series_hint.setText(describe_series(bc.flow_series, "m³/s"))
+            self.level_series_hint.setText(describe_series(bc.level_series, "m"))
+            self.flow_rate.setEnabled(not bc.flow_series)
+            self.level.setEnabled(not bc.level_series)
+            self.roughness.setCurrentIndex(max(0, self.roughness.findData(bc.roughness)))
+            self.ks_mm.set_value(bc.ks * 1000.0)
+            self.manning.set_value(bc.manning if bc.manning > 0 else 0.013)
         self._show_rows(bc.kind)
 
     def _show_rows(self, kind: str) -> None:
         self.form.setRowVisible(self.velocity, kind in ("velocityInlet", "movingWall"))
         self.form.setRowVisible(self.pressure, kind == "pressureOutlet")
         self.form.setRowVisible(self.flow_rate, kind == "flowRateInlet")
+        self.form.setRowVisible(self.flow_series_button, kind == "flowRateInlet")
+        self.form.setRowVisible(self.flow_series_hint, kind == "flowRateInlet" and bool(self.flow_series_hint.text()))
+        self.form.setRowVisible(self.level_series_button, kind == "waterLevelOutlet")
+        self.form.setRowVisible(
+            self.level_series_hint, kind == "waterLevelOutlet" and bool(self.level_series_hint.text())
+        )
         multiphase = self.project is not None and SOLVERS.get(self.project.physics.solver, SOLVERS["simpleFoam"]).multiphase
         self.form.setRowVisible(self.water_fraction, kind == "velocityInlet" and multiphase)
         self.form.setRowVisible(self.level, kind == "waterLevelOutlet")
@@ -1396,11 +1606,91 @@ class BoundaryPanel(Panel):
         if kind == "waveInlet" and self.wave_model.currentData() == "solitary":
             self.form.setRowVisible(self.wave_period, False)  # a single crest has no period
         self.form.setRowVisible(self.contact_angle, kind in ("wall", "movingWall") and multiphase)
-        has_tracer = self.project is not None and bool(self.project.tracers)
-        self.form.setRowVisible(
-            self.tracer_value, has_tracer and kind in ("velocityInlet", "flowRateInlet", "waveInlet")
-        )
+        rough = kind in ("wall", "movingWall")
+        mode = self.roughness.currentData()
+        self.form.setRowVisible(self.roughness, rough)
+        self.form.setRowVisible(self.ks_mm, rough and mode == "ks")
+        self.form.setRowVisible(self.manning, rough and mode == "manning")
+        self.form.setRowVisible(self.roughness_hint, rough and mode != "smooth")
+        if mode == "manning":
+            self.roughness_hint.setText(
+                f"n = {self.manning.value():g} is taken as a sand-grain roughness of "
+                f"{ks_from_manning(self.manning.value()) * 1000:.3g} mm (Strickler)."
+            )
+        elif mode == "ks":
+            self.roughness_hint.setText(
+                f"ks = {self.ks_mm.value():g} mm corresponds to Manning's n = "
+                f"{manning_from_ks(self.ks_mm.value() / 1000):.3g} (Strickler)."
+            )
+        concentrations = [t for t in self.project.tracers if t.kind != "age"] if self.project else []
+        inlet = kind in ("velocityInlet", "flowRateInlet", "waveInlet")
+        self.form.setRowVisible(self.tracer_value, inlet and len(concentrations) == 1)
+        self.form.setRowVisible(self.tracer_inlet, inlet and len(concentrations) > 1)
         self.hint.setText(KIND_HINTS.get(kind, ""))
+
+    def _fill_tracer_inlet(self, bc: Boundary) -> None:
+        concentrations = [t for t in self.project.tracers if t.kind != "age"] if self.project else []
+        self.tracer_inlet.setRowCount(len(concentrations))
+        for row, tracer in enumerate(concentrations):
+            name = QTableWidgetItem(tracer.name)
+            name.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            self.tracer_inlet.setItem(row, 0, name)
+            value = bc.tracer_values.get(tracer.name, bc.tracer_value)
+            self.tracer_inlet.setItem(row, 1, QTableWidgetItem(f"{value:g}"))
+
+    def set_tracer_value(self, tracer: str, value: float) -> None:
+        """The concentration of one tracer entering through the selected inlet."""
+        patch = self.selected()
+        if patch is None or self.project is None:
+            return
+        current = self.project.boundary_for(patch.name, patch.type)
+        changed = dataclasses.replace(current, tracer_values={**current.tracer_values, tracer: float(value)})
+        self.apply(lambda: self.project.boundaries.__setitem__(patch.name, changed))
+
+    def _tracer_inlet_edited(self, item) -> None:
+        if self._loading or item.column() != 1:
+            return
+        name = self.tracer_inlet.item(item.row(), 0).text()
+        try:
+            self.set_tracer_value(name, float(item.text().replace(",", ".")))
+        except ValueError:
+            pass
+
+    def set_flow_series(self, series) -> None:
+        """Give the selected flow-rate inlet a hydrograph (an empty list makes it constant again)."""
+        self._set_series("flow_series", series)
+
+    def set_level_series(self, series) -> None:
+        """Give the selected tailwater outlet levels that change in time (empty = constant)."""
+        self._set_series("level_series", series)
+
+    def _set_series(self, attribute: str, series) -> None:
+        patch = self.selected()
+        if patch is None or self.project is None:
+            return
+        current = self.project.boundary_for(patch.name, patch.type)
+        values = [[float(t), float(v)] for t, v in series]
+        changed = dataclasses.replace(current, **{attribute: values})
+        self.apply(lambda: self.project.boundaries.__setitem__(patch.name, changed))
+        self._show_patch(self.patch_list.currentRow())
+
+    def _edit_series(self, attribute: str, title: str, unit: str, constant: float, positive: bool) -> None:
+        from easyfoam.gui.series import SeriesDialog
+
+        patch = self.selected()
+        if patch is None or self.project is None:
+            return
+        bc = self.project.boundary_for(patch.name, patch.type)
+        duration = self.project.run.end_time if self.project.run.end_time > 0 else 60.0
+        dialog = SeriesDialog(getattr(bc, attribute), title, unit, constant, positive, duration, self)
+        if dialog.exec() == SeriesDialog.DialogCode.Accepted:
+            self._set_series(attribute, [] if dialog.cleared else dialog.values())
+
+    def _edit_flow_series(self, _checked: bool = False) -> None:
+        self._edit_series("flow_series", "Inflow hydrograph", "m³/s", self.flow_rate.value(), True)
+
+    def _edit_level_series(self, _checked: bool = False) -> None:
+        self._edit_series("level_series", "Tailwater level in time", "m", self.level.value(), False)
 
     def _edited(self) -> None:
         patch = self.selected()
@@ -1409,13 +1699,18 @@ class BoundaryPanel(Panel):
             return
 
         def edit():
-            self.project.boundaries[patch.name] = Boundary(
+            # keep what this panel does not show (time series, …) and replace what it does
+            current = self.project.boundary_for(patch.name, patch.type)
+            self.project.boundaries[patch.name] = dataclasses.replace(
+                current,
                 kind=kind, velocity=self.velocity.value(), pressure=self.pressure.value(),
                 flow_rate=self.flow_rate.value(), water_fraction=self.water_fraction.value(),
                 level=self.level.value(), wave_height=self.wave_height.value(),
                 wave_period=self.wave_period.value(), wave_model=self.wave_model.currentData(),
                 contact_angle=self.contact_angle.value(), tracer_value=self.tracer_value.value(),
-            )
+                roughness=self.roughness.currentData(), ks=self.ks_mm.value() / 1000.0,
+                manning=self.manning.value(),
+            )  # fmt: skip
 
         self.apply(edit)
         if not self._loading:
@@ -1429,6 +1724,7 @@ class BoundaryPanel(Panel):
 
 
 class RunPanel(Panel):
+    tracer_test_requested = Signal()
     run_requested = Signal()
     stop_requested = Signal()
     continue_requested = Signal()
@@ -1553,10 +1849,71 @@ class RunPanel(Panel):
         flow_box = QGroupBox("Discharge")
         flow_box.setLayout(flows)
 
+        self.rating_discharges = QLineEdit()
+        self.rating_discharges.setPlaceholderText("for example 0.02, 0.04, 0.06")
+        self.rating_discharges.setToolTip("The discharges to measure the head at, in m³/s, smallest first.")
+        self.rating_hold = FloatEdit(10.0)
+        self.rating_hold.setToolTip(
+            "How long each discharge is held. The water level upstream must have settled by the end of it; "
+            "a large reservoir needs longer."
+        )
+        self.rating_gauge = _spin(1, 99)
+        self.rating_gauge.setToolTip("The probe point (gauge) that measures the water level upstream of the structure.")
+        self.rating_auto = QCheckBox("Crest at the top of the highest structure")
+        self.rating_auto.setChecked(True)
+        self.rating_crest = FloatEdit(0.0)
+        self.rating_crest.setEnabled(False)
+        self.rating_auto.toggled.connect(lambda on: self.rating_crest.setEnabled(not on))
+        self.rating_button = QPushButton(icon("chart-line"), " Set up the rating-curve run")
+        self.rating_button.setToolTip(
+            "Gives the flow-rate inlet the discharges one after the other and sets the end time; "
+            "after the run, Rating curve in the Results step shows head against discharge."
+        )
+        self.rating_button.clicked.connect(self._setup_rating)
+        self.rating_status = _hint("")
+        rating = QFormLayout()
+        rating.addRow("Discharges [m³/s]", self.rating_discharges)
+        rating.addRow("Hold each for [s]", self.rating_hold)
+        rating.addRow("Gauge (probe number)", self.rating_gauge)
+        rating.addRow(self.rating_auto)
+        rating.addRow("Crest level [m]", self.rating_crest)
+        rating.addRow(self.rating_button)
+        rating.addRow(self.rating_status)
+        self.rating_box = QGroupBox("Rating curve")
+        self.rating_box.setLayout(rating)
+
+        self.test_inlet = QComboBox()
+        self.test_outlet = QComboBox()
+        self.test_kind = QComboBox()
+        self.test_kind.addItem("Step: switched on and left on", "step")
+        self.test_kind.addItem("Pulse: a short dose", "pulse")
+        self.test_kind.setToolTip("A step test gives T10 directly, as in the field; a pulse gives the spread of times.")
+        self.test_duration = FloatEdit(0.0)
+        self.test_duration.setToolTip("How long to follow the tracer, in seconds. 0 = three theoretical residence times V/Q.")
+        self.test_button = QPushButton(icon("timer"), " Run the tracer test")
+        self.test_button.setToolTip(
+            "Feeds a tracer in at the inlet of the finished steady flow, keeps the flow as it is and records the "
+            "concentration at the outlet: T10, mean residence time and baffling factor. Runs in a folder of its "
+            "own (tracer-test), so the flow results stay."
+        )
+        self.test_button.clicked.connect(self.tracer_test_requested)
+        self.test_status = _hint("")
+        test = QFormLayout()
+        test.addRow("Tracer fed in at", self.test_inlet)
+        test.addRow("Recorded at", self.test_outlet)
+        test.addRow("Dose", self.test_kind)
+        test.addRow("Follow it for [s]", self.test_duration)
+        test.addRow(self.test_button)
+        test.addRow(self.test_status)
+        self.test_box = QGroupBox("Tracer test (residence time)")
+        self.test_box.setLayout(test)
+
         layout.addWidget(box)
         layout.addWidget(force_box)
         layout.addWidget(probe_box)
         layout.addWidget(flow_box)
+        layout.addWidget(self.rating_box)
+        layout.addWidget(self.test_box)
         layout.addWidget(_hint("Running replaces earlier results of this case."))
         layout.addWidget(self.issues)
         layout.addLayout(buttons)
@@ -1603,6 +1960,12 @@ class RunPanel(Panel):
             self.ref_velocity.set_value(monitor.ref_velocity)
             self.drag_dir.set_value(monitor.drag_dir)
             self.lift_dir.set_value(monitor.lift_dir)
+            rating = project.rating
+            self.rating_discharges.setText(", ".join(f"{q:g}" for q in rating.discharges))
+            self.rating_hold.set_value(rating.hold)
+            self.rating_gauge.setValue(rating.gauge + 1)
+            self.rating_auto.setChecked(rating.crest is None)
+            self.rating_crest.set_value(rating.crest or 0.0)
         for widget in (self.delta_t, self.adjust, self.max_courant):
             widget.setEnabled(not steady)
         self.residual_target.setEnabled(steady)
@@ -1615,6 +1978,83 @@ class RunPanel(Panel):
         )
         if multiphase:
             self.adjust.setEnabled(False)  # free-surface runs always adapt the time step
+        self.rating_box.setEnabled(multiphase)
+        self.rating_box.setToolTip("" if multiphase else "Rating curves need a free-surface run with a flow-rate inlet.")
+        self._fill_test_boundaries()
+        self.test_box.setEnabled(not multiphase)
+        self.test_box.setToolTip(
+            "For a tank, model the water surface as a frictionless lid (symmetry) and use a single-fluid flow type."
+            if multiphase else ""
+        )
+
+    def _fill_test_boundaries(self) -> None:
+        from easyfoam.casegen.mesh import predicted_patches
+        from easyfoam.foam.boundaryfile import read_boundary
+
+        patches = (read_boundary(self.case_dir) if self.case_dir else []) or predicted_patches(self.project)
+        kinds = {p.name: self.project.boundary_for(p.name, p.type).kind for p in patches}
+        inlets = [n for n, k in kinds.items() if k in ("velocityInlet", "flowRateInlet")]
+        outlets = [n for n, k in kinds.items() if k in ("pressureOutlet", "freeOutflow", "waterLevelOutlet")]
+        with self.loading():
+            for combo, names in ((self.test_inlet, inlets), (self.test_outlet, outlets)):
+                current = combo.currentText()
+                combo.clear()
+                combo.addItems(names)
+                if current in names:
+                    combo.setCurrentText(current)
+
+    def test_settings(self):
+        """What the tracer test should do, as set in the panel."""
+        from easyfoam.tracertest import TestSettings
+
+        if not self.test_inlet.currentText() or not self.test_outlet.currentText():
+            raise ValueError("the tracer test needs an inlet and an outlet (Boundaries step)")
+        return TestSettings(self.test_inlet.currentText(), self.test_outlet.currentText(),
+                            self.test_kind.currentData(), max(0.0, self.test_duration.value()))  # fmt: skip
+
+    def setup_rating(self, discharges, hold: float, gauge: int = 0, crest: float | None = None) -> str:
+        """Prepare a rating-curve run; returns what was done, or raises ValueError saying what is missing."""
+        from easyfoam.model import RatingCurve, staircase
+
+        if self.project is None:
+            raise ValueError("there is no project")
+        values = [float(q) for q in discharges]
+        if len(values) < 2 or any(q <= 0 for q in values):
+            raise ValueError("give at least two discharges above zero")
+        if hold <= 0:
+            raise ValueError("the hold time must be above zero")
+        inlets = [name for name, bc in self.project.boundaries.items() if bc.kind == "flowRateInlet"]
+        if not inlets:
+            raise ValueError("make one boundary an inlet by flow rate first (Boundaries step)")
+        if not self.project.probes:
+            raise ValueError("add a probe point upstream of the structure to measure the water level (below)")
+        ramp = min(1.0, 0.1 * hold)
+
+        def edit():
+            project = self.project
+            project.rating = RatingCurve(values, hold, ramp, min(gauge, len(project.probes) - 1), crest, inlets[0])
+            inlet = project.boundaries[inlets[0]]
+            project.boundaries[inlets[0]] = dataclasses.replace(inlet, flow_series=staircase(values, hold, ramp))
+            project.run.end_time = len(values) * hold
+            project.run.write_interval = min(project.run.write_interval, hold / 2)
+
+        self.apply(edit)
+        self.load(self.project, self.case_dir)
+        text = (
+            f"{inlets[0]} steps through {len(values)} discharges, {hold:g} s each; the run ends at "
+            f"{len(values) * hold:g} s. After the run, choose Rating curve in the Results step."
+        )
+        self.rating_status.setText(text)
+        return text
+
+    def _setup_rating(self, _checked: bool = False) -> None:
+        text = self.rating_discharges.text().replace(";", ",").replace(" ", ",")
+        try:
+            values = [float(v) for v in text.split(",") if v.strip()]
+            crest = None if self.rating_auto.isChecked() else self.rating_crest.value()
+            self.setup_rating(values, self.rating_hold.value(), self.rating_gauge.value() - 1, crest)
+        except ValueError as exc:
+            QMessageBox.information(self, "Rating curve", str(exc).capitalize() + ".")
 
     def _force(self, attribute: str, value) -> None:
         self.apply(lambda: setattr(self.project.forces, attribute, value))
@@ -1721,9 +2161,15 @@ class ResultsPanel(Panel):
     refresh_requested = Signal()
     paraview_requested = Signal()
     compute_requested = Signal(str)
+    hydraulics_requested = Signal(str)  # long | pressure | loads | shear
+    export_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.source = QComboBox()
+        self.source.addItem("The flow run", "flow")
+        self.source.addItem("The tracer test", "tracer-test")
+        self.source.setToolTip("Which results to show: the flow itself, or the tracer test that followed it.")
         self.time = QComboBox()
         self.field = QComboBox()
         self.mode = QComboBox()
@@ -1740,8 +2186,10 @@ class ResultsPanel(Panel):
         self.edges = QCheckBox("Show cell edges")
 
         form = QFormLayout()
+        form.addRow("Results of", self.source)
         form.addRow("Saved time", self.time)
         form.addRow("Quantity", self.field)
+        self.display_form = form
         form.addRow("Show", self.mode)
         form.addRow("Slice plane", self.normal)
         form.addRow("Slice position", self.position)
@@ -1760,6 +2208,76 @@ class ResultsPanel(Panel):
         calc_box = QGroupBox("Derived quantities")
         calc_box.setLayout(calc)
 
+        self.long_button = QPushButton(icon("chart-line"), " Long section")
+        self.long_button.setToolTip(
+            "Bed, water level, energy line, discharge and Froude number station by station along the channel, "
+            "with any hydraulic jump and control section found in it."
+        )
+        self.residence_button = QPushButton(icon("timer"), " Residence time")
+        self.residence_button.setToolTip("T10, mean residence time and baffling factor from the tracer test (Run step).")
+        self.residence_button.clicked.connect(lambda: self.hydraulics_requested.emit("residence"))
+        self.rating_button = QPushButton(icon("chart-line"), " Rating curve")
+        self.rating_button.setToolTip(
+            "Head over the crest against discharge, from a rating-curve run (set it up in the Run step)."
+        )
+        self.average = _spin(1, 1000)
+        self.average.setToolTip(
+            "Average the long section over this many saved times, ending at the one chosen above. "
+            "Jumps and waves move about: an average over a few seconds is what to compare with theory."
+        )
+        self.structure = QComboBox()
+        self.structure.setToolTip("A wall of the mesh: a weir, a gate, a pier, a spillway face.")
+        self.pressure_button = QPushButton(icon("gauge"), " Pressure along it")
+        self.pressure_button.setToolTip(
+            "Pressure head along the surface of the structure, across the middle of the channel. "
+            "Below zero the pressure is less than atmospheric."
+        )
+        self.loads_button = QPushButton(icon("force"), " Loads on it")
+        self.loads_button.setToolTip("Force of the water on the structure and its overturning moment, at every saved time.")
+        self.at_toe = QCheckBox("Moments about its downstream toe")
+        self.at_toe.setChecked(True)
+        self.moment_point = VectorEdit()
+        self.moment_point.setEnabled(False)
+        self.moment_point.setToolTip("The point the moments are taken about, for example the hinge of a gate.")
+        self.at_toe.toggled.connect(lambda on: self.moment_point.setEnabled(not on))
+        self.d50 = FloatEdit(2.0)
+        self.d50.setToolTip("Median grain size of the bed material, in millimetres: 0.2 fine sand, 2 coarse sand, 20 gravel.")
+        self.shear_button = QPushButton(icon("layers"), " Bed shear stress and sediment movement")
+        self.shear_button.setToolTip(
+            "Shear stress of the flow on the walls, and where it exceeds the stress at which the bed material "
+            "starts to move (Shields)."
+        )
+        self.export_button = QPushButton(icon("save"), " Save the table…")
+        self.export_button.setEnabled(False)
+        self.export_button.setToolTip("Save the numbers behind the last hydraulic plot as a CSV file, for a spreadsheet.")
+        self.hydraulics_info = _hint("")
+        pair = QHBoxLayout()
+        pair.addWidget(self.pressure_button)
+        pair.addWidget(self.loads_button)
+        hydraulic = QFormLayout()
+        overview = QHBoxLayout()
+        overview.addWidget(self.long_button)
+        overview.addWidget(self.rating_button)
+        hydraulic.addRow(overview)
+        hydraulic.addRow(self.residence_button)
+        hydraulic.addRow("Average over saved times", self.average)
+        hydraulic.addRow("Structure", self.structure)
+        hydraulic.addRow(pair)
+        hydraulic.addRow(self.at_toe)
+        hydraulic.addRow("Moments about [m]", self.moment_point)
+        hydraulic.addRow("Bed material d50 [mm]", self.d50)
+        hydraulic.addRow(self.shear_button)
+        hydraulic.addRow(self.export_button)
+        hydraulic.addRow(self.hydraulics_info)
+        self.hydraulics_box = QGroupBox("Hydraulic results")
+        self.hydraulics_box.setLayout(hydraulic)
+        self.long_button.clicked.connect(lambda: self.hydraulics_requested.emit("long"))
+        self.rating_button.clicked.connect(lambda: self.hydraulics_requested.emit("rating"))
+        self.pressure_button.clicked.connect(lambda: self.hydraulics_requested.emit("pressure"))
+        self.loads_button.clicked.connect(lambda: self.hydraulics_requested.emit("loads"))
+        self.shear_button.clicked.connect(lambda: self.hydraulics_requested.emit("shear"))
+        self.export_button.clicked.connect(self.export_requested)
+
         refresh = QPushButton(icon("refresh-cw"), " Reload results")
         refresh.clicked.connect(self.refresh_requested)
         paraview = QPushButton(icon("external-link"), " Open in ParaView")
@@ -1772,16 +2290,29 @@ class ResultsPanel(Panel):
         layout.addWidget(paraview)
         layout.addWidget(calc_box)
         layout.addWidget(self.info)
+        layout.addWidget(self.hydraulics_box)
         layout.addStretch(1)
 
         for combo in (self.time, self.field, self.mode, self.normal):
             combo.currentIndexChanged.connect(self._emit_view)
+        self.source.currentIndexChanged.connect(self._source_chosen)
         self.position.sliderReleased.connect(self._emit_view)
         self.edges.toggled.connect(self._emit_view)
 
     def _emit_view(self, *_args) -> None:
         if not self._loading:
             self.view_changed.emit()
+
+    def _source_chosen(self, _index: int) -> None:
+        if not self._loading:
+            self.refresh_requested.emit()
+
+    def show_source_choice(self, has_test: bool) -> None:
+        """Offer the tracer test's results when there are any."""
+        self.display_form.setRowVisible(self.source, has_test)
+        if not has_test:
+            with self.loading():
+                self.source.setCurrentIndex(0)
 
     def set_available(self, times: Sequence[float], fields: Sequence[str]) -> None:
         with self.loading():
@@ -1801,6 +2332,24 @@ class ResultsPanel(Panel):
             f"{len(times)} saved time(s), {len(fields)} quantities." if fields
             else "No results yet. Run the simulation first."
         )
+
+    def set_structures(self, names: Sequence[str], free_surface: bool) -> None:
+        """The walls whose pressure and loads can be shown; hydraulic results need a free-surface run."""
+        current = self.structure.currentText()
+        with self.loading():
+            self.structure.clear()
+            self.structure.addItems(list(names))
+            if current in names:
+                self.structure.setCurrentText(current)
+        self.long_button.setEnabled(free_surface)
+        self.rating_button.setEnabled(free_surface)
+        for button in (self.pressure_button, self.loads_button):
+            button.setEnabled(bool(names))
+        self.hydraulics_box.setToolTip("" if free_surface else "The long section needs a free-surface run.")
+
+    def chosen_point(self) -> list[float] | None:
+        """The point for moments, or ``None`` for the structure's downstream toe."""
+        return None if self.at_toe.isChecked() else self.moment_point.value()
 
     def select_field(self, name: str, mode: str | None = None) -> None:
         """Show a quantity (and optionally switch how it is displayed)."""
