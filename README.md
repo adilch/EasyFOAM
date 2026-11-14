@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/images/logo.svg" width="96" alt="EasyFOAM logo"></p>
+
 # EasyFOAM
 
 An open-source desktop front-end for [OpenFOAM](https://www.openfoam.com).
