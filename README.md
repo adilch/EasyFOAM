@@ -82,7 +82,7 @@ rotating machinery, STEP import, …) is listed with its status in
 ## Tutorials
 
 Nineteen step-by-step tutorials, from installing to a river reach read from a survey, are in [docs/](docs/index.html) as a
-small website: open `docs/index.html` in a browser. Every click is numbered in a picture of the
+small website, online at **https://adilch.github.io/EasyFOAM/** (or open `docs/index.html` in a browser). Every click is numbered in a picture of the
 real program and every value is given.
 
 | | |
