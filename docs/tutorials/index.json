@@ -1,0 +1,296 @@
+[
+ {
+  "slug": "getting-started",
+  "title": "Install and first look",
+  "topics": [
+   "Basics"
+  ],
+  "steps": {
+   "Geometry": 5
+  }
+ },
+ {
+  "slug": "cavity",
+  "title": "Lid-driven cavity",
+  "topics": [
+   "Basics",
+   "Internal flow"
+  ],
+  "steps": {
+   "Geometry": 3,
+   "Mesh": 4,
+   "Physics": 8,
+   "Boundaries": 9,
+   "Run": 10,
+   "Results": 12
+  }
+ },
+ {
+  "slug": "pipe",
+  "title": "Laminar flow in a pipe",
+  "topics": [
+   "Internal flow",
+   "Checked against theory"
+  ],
+  "steps": {
+   "Geometry": 3,
+   "Mesh": 4,
+   "Physics": 6,
+   "Boundaries": 7,
+   "Run": 9,
+   "Results": 11
+  }
+ },
+ {
+  "slug": "sphere",
+  "title": "Air flow past a sphere",
+  "topics": [
+   "External flow",
+   "Turbulence",
+   "Forces"
+  ],
+  "steps": {
+   "Geometry": 3,
+   "Mesh": 5,
+   "Physics": 7,
+   "Boundaries": 8,
+   "Run": 9,
+   "Results": 12
+  }
+ },
+ {
+  "slug": "dambreak",
+  "title": "Dam break",
+  "topics": [
+   "Free surface"
+  ],
+  "steps": {
+   "Mesh": 3,
+   "Physics": 4,
+   "Boundaries": 6,
+   "Run": 7,
+   "Results": 9
+  }
+ },
+ {
+  "slug": "weir",
+  "title": "Flow over a weir",
+  "topics": [
+   "Free surface",
+   "Hydraulic structures",
+   "Checked against theory"
+  ],
+  "steps": {
+   "Geometry": 3,
+   "Mesh": 4,
+   "Physics": 6,
+   "Boundaries": 8,
+   "Run": 10,
+   "Results": 14
+  }
+ },
+ {
+  "slug": "draw-shapes",
+  "title": "Draw your own weir",
+  "topics": [
+   "Free surface",
+   "Hydraulic structures",
+   "Your own geometry"
+  ],
+  "steps": {
+   "Mesh": 2,
+   "Geometry": 3,
+   "Physics": 8,
+   "Boundaries": 9,
+   "Run": 10,
+   "Results": 11
+  }
+ },
+ {
+  "slug": "waves",
+  "title": "Waves in a flume",
+  "topics": [
+   "Free surface",
+   "Waves"
+  ],
+  "steps": {
+   "Mesh": 3,
+   "Physics": 4,
+   "Boundaries": 5,
+   "Run": 7,
+   "Results": 11
+  }
+ },
+ {
+  "slug": "gate",
+  "title": "Lifting sluice gate",
+  "topics": [
+   "Free surface",
+   "Hydraulic structures",
+   "Moving shapes"
+  ],
+  "steps": {
+   "Geometry": 3,
+   "Mesh": 4,
+   "Physics": 5,
+   "Run": 6,
+   "Results": 8
+  }
+ },
+ {
+  "slug": "floating",
+  "title": "Floating box",
+  "topics": [
+   "Free surface",
+   "Moving shapes",
+   "Checked against theory"
+  ],
+  "steps": {
+   "Geometry": 3,
+   "Mesh": 4,
+   "Physics": 6,
+   "Run": 7,
+   "Results": 9
+  }
+ },
+ {
+  "slug": "spillway",
+  "title": "Spillway from your own geometry",
+  "topics": [
+   "Free surface",
+   "Hydraulic structures",
+   "Your own geometry",
+   "Checked against theory"
+  ],
+  "steps": {
+   "Geometry": 3,
+   "Mesh": 5,
+   "Physics": 8,
+   "Boundaries": 10,
+   "Run": 12,
+   "Results": 16
+  }
+ },
+ {
+  "slug": "jump",
+  "title": "Hydraulic jump: long section and loads",
+  "topics": [
+   "Free surface",
+   "Hydraulic structures",
+   "Hydraulic results",
+   "Checked against theory"
+  ],
+  "steps": {
+   "Geometry": 3,
+   "Boundaries": 4,
+   "Run": 5,
+   "Results": 6
+  }
+ },
+ {
+  "slug": "ogee",
+  "title": "Ogee spillway crest from its design head",
+  "topics": [
+   "Free surface",
+   "Hydraulic structures",
+   "Checked against theory"
+  ],
+  "steps": {
+   "Geometry": 3,
+   "Boundaries": 5,
+   "Run": 6,
+   "Results": 7
+  }
+ },
+ {
+  "slug": "basin",
+  "title": "Stilling basin from the flow entering it",
+  "topics": [
+   "Free surface",
+   "Hydraulic structures",
+   "Hydraulic results"
+  ],
+  "steps": {
+   "Geometry": 3,
+   "Boundaries": 5,
+   "Run": 6,
+   "Results": 7
+  }
+ },
+ {
+  "slug": "rating",
+  "title": "Rating curve of a weir",
+  "topics": [
+   "Free surface",
+   "Hydraulic structures",
+   "Hydraulic results"
+  ],
+  "steps": {
+   "Run": 3,
+   "Boundaries": 5,
+   "Results": 8
+  }
+ },
+ {
+  "slug": "tank",
+  "title": "Contact tank: water age and a tracer test",
+  "topics": [
+   "Water treatment",
+   "Tracers",
+   "Residence time"
+  ],
+  "steps": {
+   "Geometry": 3,
+   "Physics": 4,
+   "Boundaries": 5,
+   "Run": 6,
+   "Results": 7
+  }
+ },
+ {
+  "slug": "channel",
+  "title": "Build a channel with a bend",
+  "topics": [
+   "Free surface",
+   "Open channels",
+   "Hydraulic results"
+  ],
+  "steps": {
+   "Geometry": 2,
+   "Boundaries": 5,
+   "Mesh": 6,
+   "Results": 7
+  }
+ },
+ {
+  "slug": "flood",
+  "title": "A flood through a bend",
+  "topics": [
+   "Free surface",
+   "Open channels",
+   "Time series",
+   "Sediment"
+  ],
+  "steps": {
+   "Boundaries": 5,
+   "Run": 6,
+   "Results": 9
+  }
+ },
+ {
+  "slug": "reach",
+  "title": "A river reach from a survey",
+  "topics": [
+   "Free surface",
+   "Rivers",
+   "Terrain",
+   "Hydraulic results"
+  ],
+  "steps": {
+   "Geometry": 2,
+   "Boundaries": 5,
+   "Run": 6,
+   "Results": 7
+  }
+ }
+]

@@ -20,8 +20,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from easyfoam.gui import style
 from easyfoam.gui.icons import icon
-from easyfoam.gui.style import ERROR, MUTED, set_primary
+from easyfoam.gui.style import set_primary
 
 PRESETS = {
     "flood": "Flood hydrograph (rise and fall)",
@@ -105,7 +106,7 @@ class SeriesDialog(QDialog):
             "to fill the table."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color: {MUTED};")
+        hint.setStyleSheet(f"color: {style.MUTED};")
         self.plot = None
         try:
             import pyqtgraph as pg
@@ -224,7 +225,7 @@ class SeriesDialog(QDialog):
         self.ok.setEnabled(wrong is None)
         if wrong:
             self.status.setText(f"Not usable yet: {wrong}.")
-            self.status.setStyleSheet(f"color: {ERROR};")
+            self.status.setStyleSheet(f"color: {style.ERROR};")
         else:
             self.status.setText(f"{len(rows)} points from {rows[0][0]:g} s to {rows[-1][0]:g} s.")
             self.status.setStyleSheet("")

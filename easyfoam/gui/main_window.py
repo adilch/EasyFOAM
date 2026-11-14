@@ -8,13 +8,14 @@ import time
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QActionGroup, QFont, QKeySequence
+from PySide6.QtCore import QByteArray, QSize, Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QFont, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QFileDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QListWidget,
     QMainWindow,
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     QSystemTrayIcon,
     QTabWidget,
@@ -38,11 +40,12 @@ from easyfoam.checks import project_issues, step_states
 from easyfoam.examples import EXAMPLES
 from easyfoam.external import open_in_paraview
 from easyfoam.foam.boundaryfile import Patch, read_boundary
-from easyfoam.geometry import safe_name
-from easyfoam.gui import state
+from easyfoam.geometry import CAD_SUFFIXES, safe_name
+from easyfoam.gui import state, style
+from easyfoam.gui.help import DOCS, opener, tutorial_for
 from easyfoam.gui.icons import icon
 from easyfoam.gui.jobs import DetectThread, JobThread
-from easyfoam.gui.layout import FoldingSplitter
+from easyfoam.gui.layout import FoldingSplitter, PlotWindow
 from easyfoam.gui.panels import (
     BoundaryPanel,
     GeometryPanel,
@@ -51,6 +54,7 @@ from easyfoam.gui.panels import (
     ResultsPanel,
     RunPanel,
 )
+from easyfoam.gui.search import SearchBox
 from easyfoam.gui.sidebar import (
     COMPACT_WIDTH,
     DETAIL_ROLE,
@@ -78,6 +82,8 @@ from easyfoam.pipeline import (
 from easyfoam.results import add_cavitation_index
 from easyfoam.runtime import Runtime
 from easyfoam.solvers import solver_spec
+from easyfoam.templates import create_from_template, list_templates, save_template, templates_dir
+from easyfoam.terrain import FORMATS as SURVEY_FORMATS
 
 STEPS = ("Geometry", "Mesh", "Physics", "Boundaries", "Run", "Results")
 EXAMPLE_LABELS = {
@@ -132,6 +138,7 @@ class MainWindow(QMainWindow):
 
         self.resize(1520, 900)
         self.setWindowIcon(icon("easyfoam"))
+        self.setAcceptDrops(True)  # project folders, geometry and survey files dropped on the window are opened
         self._build_panels()
         self._build_centre(enable_3d)
         self._build_actions()
@@ -219,6 +226,7 @@ class MainWindow(QMainWindow):
         self.results_panel.compute_requested.connect(self.compute_quantity)
         self.results_panel.hydraulics_requested.connect(self.hydraulics)
         self.results_panel.export_requested.connect(lambda: self.export_table())
+        self.results_panel.report_requested.connect(lambda: self.write_report())
 
     def _build_centre(self, enable_3d: bool) -> None:
         # the workflow, full height, in its own column; it narrows to its icons
@@ -250,8 +258,13 @@ class MainWindow(QMainWindow):
             "Fold the settings away to make the 3D view wider (Ctrl+B). Click a step to bring them back."
         )
         self.fold_settings_button.clicked.connect(lambda _checked=False: self.workspace.set_folded(True))
+        self.help_button = QToolButton()
+        self.help_button.setAutoRaise(True)
+        self.help_button.setIcon(icon("circle-help"))
+        self.help_button.clicked.connect(lambda _checked=False: self.open_step_tutorial())
         nav = QHBoxLayout()
         nav.addWidget(self.fold_settings_button)
+        nav.addWidget(self.help_button)
         nav.addWidget(self.back_button)
         nav.addStretch(1)
         nav.addWidget(self.next_button)
@@ -263,6 +276,9 @@ class MainWindow(QMainWindow):
             from easyfoam.gui.viewer import Viewer
 
             self.viewer = Viewer()
+            self.viewer.probe_picked.connect(self._probe_picked)
+            self.viewer.section_line_drawn.connect(self._section_line_drawn)
+            self.viewer.section_line_cleared.connect(lambda: self._section_line_drawn([]))
             view_widget: QWidget = self.viewer
         else:
             view_widget = QLabel("3D view is switched off")
@@ -292,7 +308,8 @@ class MainWindow(QMainWindow):
         try:
             import pyqtgraph as pg
 
-            pg.setConfigOptions(antialias=True, background="w", foreground="#27313b")
+            colours = style.colours()
+            pg.setConfigOptions(antialias=True, background=colours["plot_bg"], foreground=colours["plot_fg"])
             self.plot = pg.PlotWidget()
             self.plot.setLogMode(y=True)
             self.plot.showGrid(x=True, y=True, alpha=0.25)
@@ -353,7 +370,7 @@ class MainWindow(QMainWindow):
             motion_layout.addLayout(motion_plots, 1)
             self.bottom.addTab(motion_holder, "Motion")
             self.hydraulics_view = pg.GraphicsLayoutWidget()
-            self.hydraulics_view.setBackground("w")
+            self.hydraulics_view.setBackground(colours["plot_bg"])
             self.upper_plot = self.hydraulics_view.addPlot(row=0, col=0)
             self.lower_plot = self.hydraulics_view.addPlot(row=1, col=0)
             for plot in (self.upper_plot, self.lower_plot):
@@ -370,12 +387,24 @@ class MainWindow(QMainWindow):
         except ImportError:  # the window still works without live plots
             pass
         self.bottom.addTab(self.log, "Log")
-        # the plots and the log fold down to their tab headers; a click on a tab opens them again
+        # the plots and the log fold down to their tab headers (a click on a tab opens them again), or move to a
+        # window of their own, for a second screen
         self.fold_plots_button = QToolButton()
         self.fold_plots_button.setAutoRaise(True)
         self.fold_plots_button.clicked.connect(lambda _checked=False: self.right.toggle())
-        self.bottom.setCornerWidget(self.fold_plots_button, Qt.Corner.TopRightCorner)
+        self.detach_plots_button = QToolButton()
+        self.detach_plots_button.setAutoRaise(True)
+        self.detach_plots_button.clicked.connect(lambda _checked=False: self.set_plots_detached(not self.plots_detached()))
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 0, 0, 0)
+        corner_layout.setSpacing(0)
+        corner_layout.addWidget(self.detach_plots_button)
+        corner_layout.addWidget(self.fold_plots_button)
+        self.bottom.setCornerWidget(corner, Qt.Corner.TopRightCorner)
         self.bottom.tabBarClicked.connect(lambda _index: self.right.set_folded(False))
+        self.plot_window = PlotWindow(self)
+        self.plot_window.closed.connect(lambda: self.set_plots_detached(False))
 
         self.right = FoldingSplitter(Qt.Orientation.Vertical, fold=1, open_size=DEFAULT_LAYOUT["right"][1],
                                      folded_size=lambda: self.bottom.tabBar().sizeHint().height())  # fmt: skip
@@ -436,6 +465,10 @@ class MainWindow(QMainWindow):
                                   "Stop: once to save and finish, twice to end at once")  # fmt: skip
         self.paraview_action = action("ParaView", self.open_paraview, "external-link", None,
                                       "Open the case in ParaView")  # fmt: skip
+        self.report_action = action("Report", lambda _checked=False: self.write_report(), "file-text", "Ctrl+Shift+R",
+                                    "Write a report for a design note: the set-up, the mesh, the run, plots and "
+                                    "pictures, and the results checked against theory, as a web page or a PDF "
+                                    "(Ctrl+Shift+R)")  # fmt: skip
         self.folder_action = action("Show case folder", self.show_case_folder, "folder")
         self.close_action = action("Close project", self.close_project, "log-out")
 
@@ -445,9 +478,18 @@ class MainWindow(QMainWindow):
         for key in EXAMPLES_SHOWN:
             examples.addAction(icon(EXAMPLE_CARDS[key][0]), EXAMPLE_LABELS[key],
                                lambda k=key: self._new_project_dialog(k))  # fmt: skip
+        self.template_menu = file_menu.addMenu(icon("layout-template"), "New from template")
+        self.template_menu.aboutToShow.connect(self._fill_template_menu)
+        self._fill_template_menu()
         file_menu.addAction(self.open_action)
         self.recent_menu = file_menu.addMenu(icon("history"), "Open recent")
         file_menu.addAction(self.save_action)
+        self.template_action = action("Save as template…", lambda _checked=False: self.save_as_template(),
+                                      "layout-template", None,
+                                      "Keep this set-up (flow type, boundaries, run settings, shapes) to start new "
+                                      "projects from")  # fmt: skip
+        file_menu.addAction(self.template_action)
+        file_menu.addAction(self.report_action)
         file_menu.addSeparator()
         file_menu.addAction(self.folder_action)
         file_menu.addAction(self.close_action)
@@ -461,6 +503,12 @@ class MainWindow(QMainWindow):
         edit_menu = self.menuBar().addMenu("&Edit")
         edit_menu.addAction(self.undo_action)
         edit_menu.addAction(self.redo_action)
+        edit_menu.addSeparator()
+        self.search_box = SearchBox(self)
+        self.search_action = action("Find a setting or command…", lambda _checked=False: self.search_box.start(),
+                                    "search", "Ctrl+K",
+                                    "Type part of the name of a setting or command, or a word for it (Ctrl+K)")  # fmt: skip
+        edit_menu.addAction(self.search_action)
 
         sim_menu = self.menuBar().addMenu("&Simulation")
         for act in (self.mesh_action, self.run_action, self.continue_action, self.stop_action):
@@ -476,15 +524,40 @@ class MainWindow(QMainWindow):
         self.settings_action = action("Settings of the step", lambda checked: self.workspace.set_folded(not checked),
                                       "panel-fold-left", "Ctrl+B",
                                       "Show the settings, or fold them away to widen the 3D view (Ctrl+B)")  # fmt: skip
-        self.plots_action = action("Plots and log", lambda checked: self.right.set_folded(not checked),
+        self.plots_action = action("Plots and log", lambda checked: self._toggle_plots(checked),
                                    "panel-fold-down", "Ctrl+J",
                                    "Show the plots and the log, or fold them down to their tabs (Ctrl+J)")  # fmt: skip
-        for act, checked in ((self.compact_action, False), (self.settings_action, True), (self.plots_action, True)):
+        self.detach_action = action("Plots and log in a window of their own",
+                                    lambda checked: self.set_plots_detached(checked), "picture-in-picture-2",
+                                    "Ctrl+Shift+J", "Move the plots and the log to a window of their own, for a "
+                                    "second screen; close that window to bring them back (Ctrl+Shift+J)")  # fmt: skip
+        for act, checked in ((self.compact_action, False), (self.settings_action, True), (self.plots_action, True),
+                             (self.detach_action, False)):  # fmt: skip
             act.setCheckable(True)
             act.setChecked(checked)
             view_menu.addAction(act)
         view_menu.addAction(action("Reset the layout", lambda _checked=False: self.reset_layout(), "layout", None,
                                    "Put every panel back at its first size"))  # fmt: skip
+        theme_menu = view_menu.addMenu(icon("moon"), "Theme")
+        self.theme_actions: dict[str, QAction] = {}
+        themes = QActionGroup(self)
+        for key, label in style.THEME_NAMES.items():
+            act = action(label, lambda _checked=False, k=key: self.set_theme(k), None, None,
+                         f"Show EasyFOAM in the {label.lower()} colours" if key != "system" else
+                         "Light or dark, as Windows is set")  # fmt: skip
+            act.setCheckable(True)
+            act.setChecked(key == style.theme)
+            themes.addAction(act)
+            theme_menu.addAction(act)
+            self.theme_actions[key] = act
+        size_menu = view_menu.addMenu(icon("a-large-small"), "Text size")
+        self.larger_text_action = action("Larger text", lambda _checked=False: self.set_text_size(style.text_size + 0.5),
+                                         None, "Ctrl+=", "Make all the text larger (Ctrl+=)")  # fmt: skip
+        self.smaller_text_action = action("Smaller text", lambda _checked=False: self.set_text_size(style.text_size - 0.5),
+                                          None, "Ctrl+-", "Make all the text smaller (Ctrl+-)")  # fmt: skip
+        size_menu.addAction(self.larger_text_action)
+        size_menu.addAction(self.smaller_text_action)
+        size_menu.addAction(action("Standard text size", lambda _checked=False: self.set_text_size(style.TEXT_SIZE)))
         view_menu.addSeparator()
         self.view_actions: dict[str, QAction] = {}
         for key, text, shortcut in (
@@ -510,6 +583,12 @@ class MainWindow(QMainWindow):
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.addAction(action("Getting started", self._getting_started, "circle-help",
                                    QKeySequence.StandardKey.HelpContents))  # fmt: skip
+        self.step_help_action = action("Tutorial for this step", lambda _checked=False: self.open_step_tutorial(),
+                                       "book-open", "Shift+F1",
+                                       "Open the tutorial that shows the step on screen, at that step")  # fmt: skip
+        help_menu.addAction(self.step_help_action)
+        help_menu.addAction(action("All tutorials", lambda _checked=False: self.open_tutorials(), "book-open", None,
+                                   "Open the tutorials website: step-by-step tutorials with pictures"))  # fmt: skip
         help_menu.addAction(action("About EasyFOAM", self._about, "info"))
 
         bar = self.addToolBar("Main")
@@ -518,10 +597,16 @@ class MainWindow(QMainWindow):
         bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         for act in (self.new_action, self.open_action, self.save_action, self.undo_action, self.redo_action, None,
                     self.mesh_action, self.run_action, self.continue_action, self.stop_action, None,
-                    self.paraview_action):  # fmt: skip
+                    self.paraview_action, self.report_action):  # fmt: skip
             bar.addSeparator() if act is None else bar.addAction(act)
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        bar.addWidget(spacer)
+        bar.addWidget(self.search_box)
         self._fill_recent_menu()
         self._update_undo()
+        style.changed.connect(self._theme_changed)
+        self._theme_changed()
 
     # --------------------------------------------------------------- history
 
@@ -592,9 +677,101 @@ class MainWindow(QMainWindow):
         self.fold_plots_button.setIcon(icon("panel-fold-up" if folded else "panel-fold-down"))
         self.fold_plots_button.setToolTip("Bring back the plots and the log (Ctrl+J)" if folded
                                           else "Fold the plots and the log down to their tabs (Ctrl+J)")  # fmt: skip
+        self._show_detached(self.plots_detached())
+
+    def _toggle_plots(self, checked: bool) -> None:
+        if self.plots_detached():  # in their own window: bring that to the front instead
+            self._check(self.plots_action, True)
+            self.plot_window.bring_to_front()
+            return
+        self.right.set_folded(not checked)
+
+    def plots_detached(self) -> bool:
+        """Whether the plots and the log are in a window of their own."""
+        return self.bottom.parentWidget() is self.plot_window
+
+    def set_plots_detached(self, detached: bool) -> None:
+        """Move the plots and the log to a window of their own (for a second screen), or back beneath the 3D view."""
+        if detached == self.plots_detached():
+            if detached:
+                self.plot_window.bring_to_front()
+            self._show_detached(detached)
+            return
+        if detached:
+            self.right.set_folded(False)  # the splitter keeps the size they had, for when they come back
+            self.right.open_size = self.right.sizes()[1] or self.right.open_size
+            self.plot_window.hold(self.bottom)
+            self.plot_window.bring_to_front()
+        else:
+            total = sum(self.right.sizes())
+            self.right.insertWidget(1, self.bottom)
+            self.bottom.show()
+            self.right.setCollapsible(1, False)
+            opened = max(0, min(self.right.open_size, total - 120))
+            self.right.setSizes([total - opened, opened])
+            self.plot_window.hide()
+        self._show_detached(detached)
+
+    def _show_detached(self, detached: bool) -> None:
+        self._check(self.detach_action, detached)
+        self.fold_plots_button.setVisible(not detached)
+        self.detach_plots_button.setIcon(icon("panel-fold-down" if detached else "picture-in-picture-2"))
+        self.detach_plots_button.setToolTip(
+            "Put the plots and the log back beneath the 3D view (Ctrl+Shift+J)" if detached else
+            "Move the plots and the log to a window of their own, for a second screen (Ctrl+Shift+J)"
+        )  # fmt: skip
+
+    def set_theme(self, name: str) -> None:
+        """Light, dark, or as Windows is set; remembered for next time."""
+        style.set_theme(name)
+        state.save_appearance(style.theme, style.text_size)
+
+    def set_text_size(self, points: float) -> None:
+        """Larger or smaller text everywhere; remembered for next time."""
+        style.set_text_size(points)
+        state.save_appearance(style.theme, style.text_size)
+        self.statusBar().showMessage(f"Text size {style.text_size:g} pt.", 3000)
+
+    def _theme_changed(self) -> None:
+        """Repaint what draws itself in the colours of the theme now in use."""
+        for key, act in self.theme_actions.items():
+            self._check(act, key == style.theme)
+        self.larger_text_action.setEnabled(style.text_size < style.TEXT_SIZES[1])
+        self.smaller_text_action.setEnabled(style.text_size > style.TEXT_SIZES[0])
+        self._theme_plots()
+        self.steps.viewport().update()
+        if self.viewer is not None:
+            self.viewer.apply_theme()
+            self.refresh_view()
+
+    def _theme_plots(self, colours: dict | None = None) -> None:
+        """Plots in the colours of the theme in use (or of the one given, as for a printed report)."""
+        try:
+            import pyqtgraph as pg
+        except ImportError:
+            return
+        colours = colours or style.colours()
+        pg.setConfigOptions(background=colours["plot_bg"], foreground=colours["plot_fg"])
+        items = []
+        for widget in (self.plot, self.force_plot, self.probe_plot, self.flow_plot, self.motion_plot,
+                       self.rotation_plot):  # fmt: skip
+            if widget is not None:
+                widget.setBackground(colours["plot_bg"])
+                items.append(widget.getPlotItem())
+        if self.hydraulics_view is not None:
+            self.hydraulics_view.setBackground(colours["plot_bg"])
+            items += [self.upper_plot, self.lower_plot]
+        for item in items:
+            for name in ("left", "bottom", "right", "top"):
+                axis = item.getAxis(name)
+                axis.setPen(colours["plot_fg"])
+                axis.setTextPen(colours["plot_fg"])
+            if item.legend is not None:
+                item.legend.setLabelTextColor(colours["plot_fg"])
 
     def reset_layout(self) -> None:
         """Every panel back as it started: the steps with their names, the settings and the plots open."""
+        self.set_plots_detached(False)
         self.set_compact_steps(False)
         self.workspace.set_folded(False)
         self.right.set_folded(False)
@@ -603,8 +780,10 @@ class MainWindow(QMainWindow):
         self.right.setSizes(DEFAULT_LAYOUT["right"])
 
     def layout_state(self) -> dict:
+        geometry = bytes(self.plot_window.saveGeometry().toBase64()).decode("ascii")
         return {"compact_steps": self.step_delegate.compact, "centre": self.workspace.layout_state(),
-                "right": self.right.layout_state()}  # fmt: skip
+                "right": self.right.layout_state(),
+                "plot_window": {"detached": self.plots_detached(), "geometry": geometry}}  # fmt: skip
 
     def _apply_layout(self) -> None:
         """Size the panels as remembered (or as at first), once the workspace is on screen at its real size.
@@ -623,6 +802,12 @@ class MainWindow(QMainWindow):
         for splitter, key in ((self.workspace, "centre"), (self.right, "right")):
             if isinstance(saved.get(key), dict):
                 splitter.restore_layout(saved[key])
+        window = saved.get("plot_window")
+        if isinstance(window, dict):
+            if isinstance(window.get("geometry"), str) and window["geometry"]:
+                self.plot_window.restoreGeometry(QByteArray.fromBase64(window["geometry"].encode("ascii")))
+            if window.get("detached"):
+                self.set_plots_detached(True)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -638,7 +823,7 @@ class MainWindow(QMainWindow):
     def _set_project_open(self, is_open: bool) -> None:
         self.pages.setCurrentWidget(self.workspace_page if is_open else self.welcome)
         for act in (self.save_action, self.mesh_action, self.run_action, self.paraview_action,
-                    self.folder_action, self.close_action):  # fmt: skip
+                    self.folder_action, self.close_action, self.template_action, self.report_action):  # fmt: skip
             act.setEnabled(is_open)
         self.stop_action.setEnabled(False)
         self.continue_action.setEnabled(False)
@@ -669,9 +854,55 @@ class MainWindow(QMainWindow):
         case_dir = Path(parent) / name
         if case_dir.exists() and any(case_dir.iterdir()):
             raise ValueError(f"{case_dir} already exists and is not empty")
-        EXAMPLES[example](safe_name(name)).save(case_dir)
+        if example.startswith("template:"):
+            create_from_template(Path(example.removeprefix("template:")), case_dir, name)
+        else:
+            EXAMPLES[example](safe_name(name)).save(case_dir)
         state.remember_projects_folder(Path(parent))
         self.open_project(case_dir)
+
+    def _fill_template_menu(self) -> None:
+        self.template_menu.clear()
+        templates = list_templates()
+        for template in templates:
+            entry = self.template_menu.addAction(icon("layout-template"), template.name,
+                                                 lambda t=template: self._new_project_dialog(f"template:{t.folder}"))  # fmt: skip
+            entry.setToolTip(template.description)
+        if not templates:
+            self.template_menu.addAction("No templates yet: File > Save as template… keeps one").setEnabled(False)
+        self.template_menu.addSeparator()
+        self.template_menu.addAction(icon("folder"), "Show the templates folder", self._show_templates_folder)
+
+    def _show_templates_folder(self) -> None:
+        folder = templates_dir()
+        folder.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+    def save_as_template(self, name: str | None = None, description: str = "") -> None:
+        """Keep the set-up of this project as a template to start new projects from."""
+        if self.project is None or self.case_dir is None:
+            return
+        if name is None:
+            name, ok = QInputDialog.getText(self, "Save as template",
+                                            "Name of the template (new projects can start from it):",
+                                            text=self.project.name)  # fmt: skip
+            if not ok or not name.strip():
+                return
+            taken = [t.name for t in list_templates() if t.name.lower() == name.strip().lower()]
+            replace = QMessageBox.question(self, "Save as template", f"Replace the template “{taken[0]}”?") if taken \
+                else QMessageBox.StandardButton.Yes  # fmt: skip
+            if replace != QMessageBox.StandardButton.Yes:
+                return
+        self.save_project()
+        try:
+            template = save_template(self.project, self.case_dir, name, description)
+        except (ValueError, OSError) as exc:
+            self.notify("Save as template", str(exc), "error")
+            return
+        self._fill_template_menu()
+        self.statusBar().showMessage(
+            f"Saved the template “{template.name}”: File > New from template starts a project from it.", 8000
+        )
 
     def close_project(self) -> None:
         if self.thread is not None:
@@ -870,11 +1101,77 @@ class MainWindow(QMainWindow):
         row = self.steps.currentRow()
         return STEPS[row] if 0 <= row < len(STEPS) else ""
 
+    # ---------------------------------------------------------- dropped files
+
+    @staticmethod
+    def drop_kind(path: Path) -> str:
+        """What a file dropped on the window is: a project, geometry, a survey, or nothing EasyFOAM opens."""
+        path = Path(path)
+        if (path.is_dir() and (path / PROJECT_FILE).is_file()) or path.name == PROJECT_FILE:
+            return "project"
+        suffix = path.suffix.lower()
+        if suffix == ".stl" or suffix in CAD_SUFFIXES:
+            return "geometry"
+        if suffix in SURVEY_FORMATS:
+            return "survey"
+        return ""
+
+    @staticmethod
+    def _dropped(event) -> list[Path]:
+        data = event.mimeData()
+        return [Path(url.toLocalFile()) for url in data.urls() if url.isLocalFile()] if data.hasUrls() else []
+
+    def dragEnterEvent(self, event) -> None:
+        if any(self.drop_kind(path) for path in self._dropped(event)):
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event) -> None:
+        if any(self.drop_kind(path) for path in self._dropped(event)):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event) -> None:
+        paths = self._dropped(event)
+        event.acceptProposedAction()
+        QTimer.singleShot(0, lambda: self.open_files(paths))  # after the drop: a dialog must not hold up the source
+
+    def open_files(self, paths: list[Path]) -> None:
+        """Open what was dropped on the window: a project folder, geometry files (STL, STEP, IGES) or a survey."""
+        kinds = {Path(p): self.drop_kind(Path(p)) for p in paths}
+        unknown = [p.name for p, kind in kinds.items() if not kind]
+        projects = [p for p, kind in kinds.items() if kind == "project"]
+        geometry_files = [p for p, kind in kinds.items() if kind == "geometry"]
+        surveys = [p for p, kind in kinds.items() if kind == "survey"]
+        if unknown:
+            self.statusBar().showMessage("EasyFOAM does not open " + ", ".join(unknown) + ".", 8000)
+        if projects:
+            if self.thread is not None:
+                self.notify("Open project", "A task is still running. Stop it first.")
+                return
+            folder = projects[0] if projects[0].is_dir() else projects[0].parent
+            if self.project is not None:
+                self.save_project()
+                self._remember_layout()
+            self.open_project(folder)
+            return
+        if not geometry_files and not surveys:
+            return
+        if self.project is None:
+            self.notify("Open files", "Open or create a project first, then drop geometry or survey files on it.")
+            return
+        if geometry_files:
+            self.steps.setCurrentRow(STEPS.index("Geometry"))
+            self.workspace.set_folded(False)
+            self.geometry_panel.import_files(geometry_files)
+        if surveys:
+            self.steps.setCurrentRow(STEPS.index("Geometry"))
+            self.bring_in_terrain(surveys[0])
+
     def _step_selected(self, row: int) -> None:
         if row < 0:
             return
         self.stack.setCurrentIndex(row)
         self._update_nav()
+        self._update_help()
         if self.viewer is not None:
             self.viewer._highlighted = self._selected_name()  # drawn by the refresh below
         if STEPS[row] == "Boundaries" and self.project is not None:
@@ -882,6 +1179,32 @@ class MainWindow(QMainWindow):
         if STEPS[row] == "Mesh" and self.project is not None:
             self.mesh_panel.load(self.project, self.case_dir)
         self.refresh_view()
+
+    def _update_help(self) -> None:
+        """The "?" of the step says which tutorial it opens."""
+        found = tutorial_for(self.project, self.current_step()) if self.project is not None else None
+        self.help_button.setEnabled(found is not None)
+        self.help_button.setToolTip(
+            f"Show how this step is done in the tutorial “{found[2]}” (step {found[1]}), in the browser (Shift+F1)"
+            if found else "No tutorial shows this step: the tutorials website is not installed with this copy."
+        )  # fmt: skip
+
+    def open_step_tutorial(self) -> None:
+        """Open the tutorial that shows the step on screen, at that step, in the browser."""
+        found = tutorial_for(self.project, self.current_step()) if self.project is not None else None
+        if found is None:
+            self.open_tutorials()
+            return
+        page, number, title = found
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(opener(page, number))))
+        self.statusBar().showMessage(f"Opened the tutorial “{title}” at step {number} in the browser.", 6000)
+
+    def open_tutorials(self) -> None:
+        index = DOCS / "index.html"
+        if not index.is_file():
+            self.notify("Tutorials", f"The tutorials website is not installed with this copy of EasyFOAM ({index}).")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(index)))
 
     def _go(self, delta: int) -> None:
         row = self.steps.currentRow() + delta
@@ -916,6 +1239,8 @@ class MainWindow(QMainWindow):
             self.viewer.fit() if key == "fit" else self.viewer.set_view(key)
 
     def _show_tab(self, name: str) -> None:
+        if self.plots_detached():
+            self.plot_window.bring_to_front()
         self.right.set_folded(False)  # asked for: show it, even if the plots were folded away
         for index in range(self.bottom.count()):
             if self.bottom.tabText(index) == name:
@@ -931,6 +1256,33 @@ class MainWindow(QMainWindow):
         self.progress.show()
         self.time_left.setText(f"{in_words(left)} left" if left is not None else "estimating the time left…")
         self.time_left.show()
+
+    def _probe_picked(self, point: list[float]) -> None:
+        """A gauge or probe placed with a click in the 3D view."""
+        if self.project is None:
+            return
+        self.run_panel.add_probe(point)
+        number = len(self.project.probes)
+        what = "Gauge" if solver_spec(self.project.physics.solver).multiphase else "Probe"
+        self.statusBar().showMessage(
+            f"{what} {number} placed at x {point[0]:g}, y {point[1]:g}, z {point[2]:g}: the Probes section of the Run "
+            "step lists it (Undo takes it away).", 10000
+        )  # fmt: skip
+        if self.viewer is not None:
+            self.viewer.show_markers(self.project)
+
+    def _section_line_drawn(self, points: list[list[float]]) -> None:
+        """The line the long section follows, drawn in the 3D view (none: the channel or the x axis again)."""
+        if self.project is None:
+            return
+        self.project.section_line = [list(map(float, p)) for p in points]
+        self._project_changed()
+        self.statusBar().showMessage(
+            f"The long section now follows the line drawn ({len(points)} points)." if points else
+            "Long-section line cleared: the long section follows the channel, or the x axis.", 8000
+        )  # fmt: skip
+        if self.viewer is not None:
+            self.viewer.show_markers(self.project)
 
     def _point_dragged(self, point: list[float]) -> None:
         """The user dragged the point-inside-the-fluid ball in the 3D view."""
@@ -1416,6 +1768,7 @@ class MainWindow(QMainWindow):
     def refresh_view(self) -> None:
         if self.viewer is None or self.project is None or self.case_dir is None:
             return
+        self.viewer.set_project(self.project)
         step = self.current_step()
         try:
             has_mesh = bool(self.mesh_patches())
@@ -1487,6 +1840,111 @@ class MainWindow(QMainWindow):
             return
         self.results_panel.export_button.setEnabled(self._table is not None)
         self._show_tab("Hydraulics")
+
+    # ---------------------------------------------------------------- report
+
+    def write_report(self, path: Path | None = None, open_after: bool = True) -> Path | None:
+        """One click: the set-up, the mesh, the run, plots and pictures, and the results checked against theory,
+        written as a web page or a PDF for a design note."""
+        from easyfoam import report
+
+        if self.project is None or self.case_dir is None:
+            return None
+        if path is None:
+            default = self.case_dir / f"{self.project.name}-report.html"
+            name, kind = QFileDialog.getSaveFileName(self, "Save the report", str(default),
+                                                     "Web page (*.html);;PDF document (*.pdf)")  # fmt: skip
+            if not name:
+                return None
+            path = Path(name)
+            if path.suffix.lower() not in (".html", ".htm", ".pdf"):
+                path = path.with_suffix(".pdf" if "PDF" in kind else ".html")
+        self.save_project()
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.statusBar().showMessage("Writing the report: reading the results and checking them against theory…")
+        QApplication.processEvents()
+        try:
+            long = self._report_long_section()
+            rating = self._report_rating()
+            figures = self._report_figures()
+            built = report.build(self.project, self.case_dir, self.runtime.label if self.runtime else "", figures,
+                                 long, rating)  # fmt: skip
+            report.write(built, path)
+        except (OSError, ValueError, KeyError, RuntimeError) as exc:
+            self.statusBar().clearMessage()
+            self.notify("Report", f"The report could not be written: {exc}", "error")
+            return None
+        finally:
+            QApplication.restoreOverrideCursor()
+        looks = sum(c.verdict in (report.LOOK, report.FAIL) for c in built.checks)
+        said = f"{len(built.checks)} checks, {looks} to look at" if built.checks else "no results to check yet"
+        self.statusBar().showMessage(f"Report written ({said}): {path}", 12000)
+        if open_after:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        return path
+
+    def _report_long_section(self):
+        """The long section of a free-surface run, averaged over the last saved times (also drawn in Hydraulics)."""
+        if not solver_spec(self.project.physics.solver).multiphase:
+            return None
+        try:
+            results = self._case_results()
+            times = [t for t in results.times if t > 0] if results is not None else []
+            if not times:
+                return None
+            self._long_section(results, times[-1])
+            from easyfoam.hydraulics import LongSection
+
+            return self._table if isinstance(self._table, LongSection) else None
+        except (ValueError, KeyError, OSError, IndexError):
+            return None
+
+    def _report_rating(self):
+        if not self.project.rating.discharges:
+            return None
+        from easyfoam import hydraulics as hy
+
+        try:
+            return hy.rating_curve(self.project, self.case_dir) or None
+        except (ValueError, KeyError, OSError, IndexError):
+            return None
+
+    def _report_figures(self) -> list:
+        """The 3D view as it is, and every plot that holds something, drawn light for printing."""
+        from easyfoam.report import Figure
+
+        figures = []
+        if self.viewer is not None:
+            try:
+                figures.append(Figure(self._view_title(), _png(self.viewer.screenshot())))
+            except (RuntimeError, ValueError, AttributeError):
+                pass
+        if self.plot is None:
+            return figures
+        wanted = [("Residuals", self.plot, "initial residual of each quantity, iteration by iteration"),
+                  ("Discharge", self.flow_plot, "positive leaves the domain"),
+                  ("Probes", self.probe_plot, ""), ("Forces", self.force_plot, "")]  # fmt: skip
+        light = style.colours("light")
+        self._theme_plots(light)
+        try:
+            for title, widget, caption in wanted:
+                if widget is not None and _has_data(widget.getPlotItem()):
+                    figures.append(Figure(title, _export(widget.getPlotItem()), caption))
+            if self.hydraulics_view is not None and _has_data(self.upper_plot):
+                text = self.hydraulics_label.text()
+                aspect = 0.62 if self.lower_plot.isVisible() else 0.42
+                figures.append(Figure("Hydraulic results", _export(self.hydraulics_view.ci, aspect), text))
+        finally:
+            self._theme_plots()
+        return figures
+
+    def _view_title(self) -> str:
+        if self.current_step() == "Results" and self.results_panel.field.currentText():
+            time = self.results_panel.time.currentData()
+            when = f" at {time:g} s" if isinstance(time, float) else ""
+            mode = re.sub(r"\s*\(.*?\)", "", self.results_panel.mode.currentText()).lower()
+            return f"{self.results_panel.field.currentText()} ({mode}){when}"
+        return f"The model as set up ({self.current_step().lower()} step)"
 
     def _plots_ready(self, upper: str, lower: str | None, bottom: str):
         import pyqtgraph as pg
@@ -1649,13 +2107,13 @@ class MainWindow(QMainWindow):
         self.notify("Channel", "The channel is set up" + (f": {what}" if what else "") +
                     ". Generate its mesh in the Mesh step.")  # fmt: skip
 
-    def bring_in_terrain(self) -> None:
+    def bring_in_terrain(self, path: Path | None = None) -> None:
         """Read a survey file and model the flow over that ground."""
         if self.project is None or self.case_dir is None:
             return
         from easyfoam.gui.terrain_dialog import TerrainDialog
 
-        dialog = TerrainDialog(parent=self)
+        dialog = TerrainDialog(path, parent=self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             try:
                 ground = dialog.ground()
@@ -1844,6 +2302,7 @@ class MainWindow(QMainWindow):
                 return
             self.thread.stop()
             self.thread.wait(5000)
+        style.changed.disconnect(self._theme_changed)
         self.save_project()
         self._remember_layout()
         if self._detect_thread is not None:
@@ -1851,3 +2310,46 @@ class MainWindow(QMainWindow):
         if self.viewer is not None:
             self.viewer.close_view()
         super().closeEvent(event)
+
+
+def _png(image) -> bytes:
+    """A picture (an array of rows of RGB or RGBA pixels) as PNG data."""
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+    from PySide6.QtGui import QImage
+
+    array = np.ascontiguousarray(image[:, :, :3], dtype=np.uint8)
+    height, width = array.shape[:2]
+    picture = QImage(array.tobytes(), width, height, 3 * width, QImage.Format.Format_RGB888)
+    data = QByteArray()
+    buffer = QBuffer(data)
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    picture.save(buffer, "PNG")
+    return bytes(data)
+
+
+def _has_data(plot_item) -> bool:
+    for item in plot_item.listDataItems():
+        x, _y = item.getData()
+        if x is not None and len(x):
+            return True
+    return False
+
+
+def _export(item, aspect: float = 0.42, width: int = 1400) -> bytes:
+    """A plot drawn as a PNG picture of a set shape (height / width), whatever its size on screen, or if hidden."""
+    from pyqtgraph.exporters import ImageExporter
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QRectF
+
+    previous = item.geometry()
+    item.setGeometry(QRectF(0, 0, 1000, 1000 * aspect))  # laid out at this size; drawn 1.4 times larger
+    try:
+        exporter = ImageExporter(item)
+        exporter.parameters()["width"] = width
+        picture = exporter.export(toBytes=True)
+    finally:
+        item.setGeometry(previous)
+    data = QByteArray()
+    buffer = QBuffer(data)
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    picture.save(buffer, "PNG")
+    return bytes(data)

@@ -6,10 +6,11 @@ Geometry, meshing, case set-up, running and results in one window, driving
 
 ![EasyFOAM workspace](docs/images/Forces.png)
 
-Status: **v0.8, alpha.** The whole loop works for incompressible flow around
+Status: **v0.14, alpha.** The whole loop works for incompressible flow around
 bodies, inside pipes and ducts, and with a free water surface (weirs, spillways,
-dam breaks), including gates that move and bodies that float; see
-[what works](#what-works-today) and the [roadmap](docs/roadmap.md).
+dam breaks, channels, river reaches, hydraulic structures), including gates that
+move and bodies that float; see [what works](#what-works-today) and the
+[roadmap](docs/roadmap.md).
 
 ## Why another GUI
 
@@ -27,11 +28,32 @@ Good free tools already exist: [BARAM](https://github.com/nextfoam/baram)
 - A start page with examples and your recent projects; a new project only needs a name.
 - Six steps down the left, each with a one-line summary and a tick, a warning or a to-do mark.
 - A checklist before every run says in plain words what is still missing or wrong.
-- Back / Next buttons walk through the steps; every input explains itself in a tooltip.
-- Selecting a shape or a boundary lights it up in the 3D view; view buttons for fit, axis views and pictures.
-- Stop saves the current state first; Continue carries on from where a run ended.
+- Back / Next buttons walk through the steps; every input explains itself in a tooltip, and the **?** of
+  each step opens the tutorial that shows it, at that step.
+- **Ctrl+K** finds any setting or command by name, or by another word for it ("tailwater", "gauge",
+  "Strickler", "CFL"), and goes there.
+- Long forms are in sections that fold to one line and say what they hold; the ones most projects do
+  not need start folded, and every section stays the way it was left.
+- Panels resize and fold away; the plots and the log can move to a window of their own, for a second
+  screen. A light and a dark theme, and a text size of your choice.
+- Number fields take units ("50 mm", "3 l/s", "10 cfs") and arithmetic, and say why a value is refused;
+  every change can be undone.
+- Drop a project folder, STL / STEP files or a survey on the window to open them; keep a set-up as a
+  template and start new projects from it.
+- Selecting a shape or a boundary lights it up in the 3D view; view buttons for fit, axis views and
+  pictures. In the 3D view, read the value under the cursor, place gauges and probes with a click,
+  measure distances and draw the line the long section follows.
+- Stop saves the current state first; Continue carries on from where a run ended; a long run says how
+  long it still needs and announces when it ends.
+- **One click writes a report** for a design note: the set-up, the mesh, the run, plots and pictures,
+  and the results checked against theory (continuity, Bélanger, critical depth, the WES crest, USBR
+  basins, Manning), as a web page or a PDF.
 
 ![Start page](docs/images/Welcome.png)
+
+![Ctrl+K finds settings by the words engineers use: "tailwater" leads to the outlet at a water level](docs/images/Search.png)
+
+![The first page of a report: the run checked against theory](docs/images/Report.png)
 
 ## What works today
 
@@ -48,7 +70,8 @@ Good free tools already exist: [BARAM](https://github.com/nextfoam/baram)
 | Physics | Incompressible flow, steady (simpleFoam) and transient (pimpleFoam); laminar, k-epsilon (standard, realizable, RNG), k-omega (standard, SST), Spalart-Allmaras, k-kl-omega transition; wall functions or resolved boundary layer; non-Newtonian fluids; tracers; velocity limiter; potential-flow start; small fluid list |
 | Boundaries | Velocity inlet, inlet by flow rate (follows the water level in free-surface flow), inflow hydrographs, pressure outlet, free outflow, outlet at a tailwater level (fixed or changing in time), wall roughness as Manning's n or a sand-grain height, wave maker, wave-absorbing outlet, open atmosphere, wall, moving wall, slip, symmetry / empty; sensible defaults from patch names and types |
 | Run | Serial or parallel (automatic decomposition and reconstruction); live residual plot; convergence target; drag and lift coefficients with a live plot and forces in newtons; probes; frontal-area estimate; graceful stop and continue; the final state is always saved; log |
-| Results | Built-in 3D view (mesh, slices, surface colouring, the water surface coloured by speed); y+, wall shear stress, vorticity and Q computed on demand; one click to ParaView |
+| Results | Built-in 3D view (mesh, slices, surface colouring, the water surface coloured by speed) with values under the cursor; y+, wall shear stress, vorticity and Q computed on demand; one click to ParaView |
+| Reports | A web page or PDF of the project: inputs, geometry and structure design values, mesh and checkMesh, boundaries, the run (time reached, Courant number, residuals), monitors, the 3D view and every plot, and checks against theory with a verdict for each (continuity, jumps against Bélanger, control sections against critical depth, the WES crest coefficient, USBR basin depth and length, uniform flow by Manning) |
 
 Everything else a commercial front-end offers (heat transfer, free surface,
 rotating machinery, STEP import, …) is listed with its status in
@@ -148,6 +171,7 @@ easyfoam channel river --piece straight:20 --piece bend:15:60 --slope 0.001   # 
 easyfoam terrain reach dem.tif --angle 30 --cell 1 --water 99.3   # flow over a surveyed valley
 easyfoam structure mycase ogee --station 2 --set design_head=0.12   # a spillway crest from its design head
 easyfoam structure mycase basin --set basin_type=4 --set froude=3.5   # a USBR stilling basin
+easyfoam report mycase -o mycase.pdf                       # a report, checked against theory (or .html)
 ```
 
 ## Checked against theory

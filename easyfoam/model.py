@@ -178,6 +178,22 @@ class Boundary:
     manning: float = 0.0  # Manning's n, s/m^(1/3)
 
 
+#: what each condition of a boundary is called in the window and in reports
+KIND_LABELS = {
+    "velocityInlet": "Velocity inlet",
+    "pressureOutlet": "Pressure outlet",
+    "slip": "Slip (frictionless)",
+    "wall": "Wall (no slip)",
+    "movingWall": "Moving wall",
+    "flowRateInlet": "Inlet by flow rate",
+    "freeOutflow": "Free outflow",
+    "atmosphere": "Open to the atmosphere",
+    "waterLevelOutlet": "Outlet at a water level",
+    "waveInlet": "Wave maker",
+    "waveOutlet": "Wave-absorbing outlet",
+}
+
+
 #: Strickler: Manning's n = ks^(1/6) / (8.25 sqrt(g)); used to turn n into a roughness height
 STRICKLER = 8.25 * 9.81**0.5
 
@@ -333,6 +349,8 @@ class Project:
     tracers: list[Tracer] = field(default_factory=list)
     rating: RatingCurve = field(default_factory=RatingCurve)
     channel: Channel | None = None  # an open channel built in the program; it replaces the base mesh
+    #: the line the long section follows, drawn in the 3D view, as [[x, y], ...]; empty = the channel or the x axis
+    section_line: list[list[float]] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)

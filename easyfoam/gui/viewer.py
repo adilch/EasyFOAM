@@ -11,12 +11,23 @@ os.environ.setdefault("QT_API", "pyside6")
 
 import numpy as np  # noqa: E402
 import pyvista as pv  # noqa: E402
-from PySide6.QtCore import Qt  # noqa: E402
-from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QToolButton, QVBoxLayout, QWidget  # noqa: E402
+from PySide6.QtCore import Qt, QTimer, Signal  # noqa: E402
+from PySide6.QtGui import QActionGroup, QColor, QPainter  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QMenu,
+    QSizePolicy,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 from pyvistaqt import QtInteractor  # noqa: E402
 
 from easyfoam.casegen.mesh import auto_location_in_mesh, location_in_mesh, uses_snappy  # noqa: E402
 from easyfoam.drawn import is_drawn, triangulate
+from easyfoam.gui import style  # noqa: E402
 from easyfoam.gui.icons import icon  # noqa: E402
 from easyfoam.model import FACES, Project, Shape  # noqa: E402
 from easyfoam.results import CaseData  # noqa: E402
@@ -38,6 +49,28 @@ VIEWS = {  # name -> (direction from the scene to the camera, up)
 }  # fmt: skip
 REGION = "#4c78a8"
 OPEN_TYPES = ("patch", "symmetry", "symmetryPlane", "empty")
+#: what a click in the 3D view does
+PICK_MODES = {
+    "values": "Read values under the cursor",
+    "probe": "Place gauges and probes",
+    "measure": "Measure a distance",
+    "line": "Draw the long-section line",
+    "off": "Off",
+}
+PICK_HINTS = {
+    "values": "Hover over the model to read the position and the value shown there.",
+    "probe": "Click to place a gauge (free surface: it measures the water level there) or a probe.",
+    "measure": "Click two points on the model to measure the distance between them.",
+    "line": "Click along the channel to draw the line the long section follows; double-click, right-click or press "
+            "Enter to finish, Esc to start again.",
+    "off": "",
+}  # fmt: skip
+FIELD_UNITS = {"U": "m/s", "p": "m²/s²", "p_rgh": "Pa", "k": "m²/s²", "omega": "1/s", "epsilon": "m²/s³",
+               "nut": "m²/s", "alpha.water": "", "yPlus": "", "vorticity": "1/s", "wallShearStress": "m²/s²",
+               "age": "s", "bedShear": "Pa", "shieldsRatio": ""}  # fmt: skip
+MARKER = "#e45756"
+LINE = "#f59e0b"
+ACCENT_LINE = "#2563eb"
 AXIS = {"x": 0, "y": 1, "z": 2}
 
 
@@ -114,7 +147,32 @@ def is_enclosure(patch_bounds, domain_bounds) -> bool:
     return diagonal(patch_bounds) >= 0.8 * diagonal(domain_bounds)
 
 
+class ElidedLabel(QLabel):
+    """A one-line label that shortens its text to the room it has (all of it in the tooltip): it never makes the
+    window wider."""
+
+    def __init__(self, text: str = "") -> None:
+        super().__init__(text)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setContentsMargins(10, 0, 4, 0)
+
+    def setText(self, text: str) -> None:  # noqa: N802 - Qt's name
+        super().setText(text)
+        self.setToolTip(text)
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.setPen(QColor(style.MUTED))
+        rect = self.contentsRect()
+        text = self.fontMetrics().elidedText(self.text(), Qt.TextElideMode.ElideRight, rect.width())
+        painter.drawText(rect, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), text)
+
+
 class Viewer(QWidget):
+    probe_picked = Signal(list)  # a gauge or probe placed with a click: [x, y, z]
+    section_line_drawn = Signal(list)  # the line the long section follows: [[x, y], ...]
+    section_line_cleared = Signal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.plotter = QtInteractor(self)
@@ -146,7 +204,27 @@ class Viewer(QWidget):
             "grid-2x2", checkable=True,
         )  # fmt: skip
         button("Picture", "Save the 3D view as an image file", self.save_picture, "camera")
-        row.addStretch(1)
+        self.pick_button = QToolButton()
+        self.pick_button.setIcon(icon("mouse-pointer-click", size=16))
+        self.pick_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.pick_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(self.pick_button)
+        modes = QActionGroup(self)
+        self.pick_actions = {}
+        for key, label in PICK_MODES.items():
+            act = menu.addAction(label)
+            act.setCheckable(True)
+            act.setToolTip(PICK_HINTS[key])
+            modes.addAction(act)
+            act.triggered.connect(lambda _checked=False, k=key: self.set_pick_mode(k))
+            self.pick_actions[key] = act
+        menu.addSeparator()
+        self.clear_line_action = menu.addAction("Clear the long-section line", self.section_line_cleared.emit)
+        self.pick_button.setMenu(menu)
+        row.addWidget(self.pick_button)
+        self.readout = ElidedLabel()  # what is under the cursor, or what a pick mode asks for
+        self.readout.setObjectName("readout")
+        row.addWidget(self.readout, 1)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -155,9 +233,31 @@ class Viewer(QWidget):
         layout.addWidget(self.plotter, 1)
         self._parts: dict = {}  # name -> surface of what is on screen, for highlighting
         self._highlighted = ""
-        self.plotter.set_background("#f4f6f8", top="#cfd9e3")
+        self.apply_theme()
         self.plotter.add_axes()
         self._scene: str | None = None  # what is shown; the camera is kept while it stays the same
+        # picking: what a click does, and what it knows of the project
+        self._names: dict = {}  # actor -> the shape or boundary it shows
+        self._field: str | None = None  # the quantity on screen
+        self._bounds = ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))  # of the domain
+        self._cell = 0.05  # size of a base cell
+        self._free_surface = False
+        self._probes: list[list[float]] = []
+        self._section_line: list[list[float]] = []
+        self._drawing: list[list[float]] = []  # the long-section line being drawn
+        self._measure: list[np.ndarray] = []
+        self._press: tuple[int, int] | None = None
+        self._right_press: tuple[int, int] | None = None
+        self._hover = QTimer(self, singleShot=True, interval=60)
+        self._hover.timeout.connect(self._read_under_cursor)
+        iren = self.plotter.iren
+        iren.add_observer("LeftButtonPressEvent", self._left_pressed)
+        iren.add_observer("LeftButtonReleaseEvent", self._left_released)
+        iren.add_observer("RightButtonPressEvent", self._right_pressed)
+        iren.add_observer("RightButtonReleaseEvent", self._right_released)
+        iren.add_observer("MouseMoveEvent", self._mouse_moved)
+        iren.add_observer("KeyPressEvent", self._key_pressed)
+        self.set_pick_mode("values")
 
     # -- helpers
     def _begin(self, scene: str) -> bool:
@@ -169,6 +269,8 @@ class Viewer(QWidget):
         self.plotter.clear_line_widgets()
         self.plotter.clear()
         self._parts = {}
+        self._names = {}
+        self._field = None
         return fresh
 
     def _end(self, fresh: bool) -> None:
@@ -176,6 +278,258 @@ class Viewer(QWidget):
             self.plotter.reset_camera()
             self.plotter.view_isometric()
         self._draw_highlight()
+        self._draw_markers()
+        self.plotter.render()
+
+    def _add(self, mesh, name: str | None = None, **kw):
+        """Add a mesh to the scene, remembering which shape or boundary it shows (for picking)."""
+        actor = self.plotter.add_mesh(mesh, **kw)
+        if name:
+            self._names[actor] = name
+        return actor
+
+    # -- picking: values under the cursor, gauges and probes, distances, the long-section line
+    def set_project(self, project: Project) -> None:
+        """What picking needs to know: the domain, its cells, the gauges and the long-section line."""
+        from easyfoam.solvers import solver_spec
+
+        base = project.mesh.base
+        lo, hi = [float(c) for c in base.min], [float(c) for c in base.max]
+        if project.channel is not None:
+            from easyfoam import channel
+
+            lo, hi = channel.bounds(project.channel)
+            self._cell = float(project.channel.cell_size)
+        else:
+            self._cell = min((b - a) / max(1, n) for a, b, n in zip(lo, hi, base.cells))
+        self._bounds = (tuple(lo), tuple(hi))
+        self._free_surface = solver_spec(project.physics.solver).multiphase
+        self._probes = [list(map(float, p)) for p in project.probes]
+        self._section_line = [list(map(float, p)) for p in project.section_line]
+
+    def set_pick_mode(self, mode: str) -> None:
+        self._pick_mode = mode
+        self.pick_actions[mode].setChecked(True)
+        short = {"values": "Values", "probe": "Gauges", "measure": "Measure", "line": "Long-section line", "off": "Pick"}
+        self.pick_button.setText(short[mode])
+        self.pick_button.setToolTip("What a click in the 3D view does. " + PICK_HINTS[mode])
+        self._drawing, self._measure = [], []
+        self.readout.setText(PICK_HINTS[mode] if mode not in ("values", "off") else "")
+        self._draw_markers()
+        self.plotter.render()
+
+    def pick_mode(self) -> str:
+        return self._pick_mode
+
+    def _event_position(self) -> tuple[int, int]:
+        x, y = self.plotter.iren.get_event_position()
+        return int(x), int(y)
+
+    def _pick(self, x: int, y: int):
+        """What lies under a point of the view: (picker, position) or (None, None)."""
+        from vtkmodules.vtkRenderingCore import vtkCellPicker
+
+        picker = vtkCellPicker()
+        picker.SetTolerance(0.0005)
+        if picker.Pick(x, y, 0, self.plotter.renderer) and picker.GetCellId() >= 0:
+            return picker, np.array(picker.GetPickPosition(), float)
+        return None, None
+
+    def _on_plane(self, x: int, y: int, z: float) -> np.ndarray | None:
+        """Where the line of sight through a point of the view meets the horizontal plane at height z."""
+        renderer = self.plotter.renderer
+        ends = []
+        for depth in (0.0, 1.0):
+            renderer.SetDisplayPoint(x, y, depth)
+            renderer.DisplayToWorld()
+            wx, wy, wz, w = renderer.GetWorldPoint()
+            ends.append(np.array([wx, wy, wz]) / (w or 1.0))
+        direction = ends[1] - ends[0]
+        if abs(direction[2]) < 1e-12:
+            return None
+        point = ends[0] + (z - ends[0][2]) / direction[2] * direction
+        lo, hi = self._bounds
+        inside = lo[0] - 1e-9 <= point[0] <= hi[0] + 1e-9 and lo[1] - 1e-9 <= point[1] <= hi[1] + 1e-9
+        return point if inside else None
+
+    def _left_pressed(self, *_args) -> None:
+        self._press = self._event_position()
+        if self._pick_mode == "line" and self.plotter.iren.interactor.GetRepeatCount() > 0:  # a double click
+            self._finish_line()
+
+    def _left_released(self, *_args) -> None:
+        start, self._press = self._press, None
+        if start is None:
+            return
+        x, y = self._event_position()
+        if abs(x - start[0]) + abs(y - start[1]) > 4:
+            return  # a drag turns the model; only a click picks
+        if self._pick_mode == "probe":
+            self._place_probe(x, y)
+        elif self._pick_mode == "measure":
+            self._measure_at(x, y)
+        elif self._pick_mode == "line":
+            self._extend_line(x, y)
+
+    def _right_pressed(self, *_args) -> None:
+        self._right_press = self._event_position()
+
+    def _right_released(self, *_args) -> None:
+        start, self._right_press = self._right_press, None
+        if start is not None and self._pick_mode == "line":
+            x, y = self._event_position()
+            if abs(x - start[0]) + abs(y - start[1]) <= 4:
+                self._finish_line()
+
+    def _key_pressed(self, *_args) -> None:
+        key = self.plotter.iren.interactor.GetKeySym()
+        if key in ("Return", "KP_Enter") and self._pick_mode == "line":
+            self._finish_line()
+        elif key == "Escape" and self._pick_mode in ("line", "measure"):
+            self._drawing, self._measure = [], []
+            self.readout.setText(PICK_HINTS[self._pick_mode])
+            self._draw_markers()
+            self.plotter.render()
+
+    def _mouse_moved(self, *_args) -> None:
+        if self._pick_mode == "values" and self._press is None and self._right_press is None:
+            self._hover.start()  # read once the mouse rests a moment, not at every step
+
+    def _read_under_cursor(self) -> None:
+        if self._pick_mode != "values":
+            return
+        try:
+            x, y = self._event_position()
+            picker, point = self._pick(x, y)
+        except (RuntimeError, AttributeError):
+            return
+        self.readout.setText(self.describe(picker, point) if picker is not None else "")
+
+    def describe(self, picker, point) -> str:
+        """The position picked, what it is, and the value of the quantity shown there."""
+        where = f"x {point[0]:.4g}   y {point[1]:.4g}   z {point[2]:.4g} m"
+        name = self._names.get(picker.GetActor(), "")
+        value = self._value(picker) if self._field else ""
+        return "   ·   ".join(part for part in (where, name, value) if part)
+
+    def _value(self, picker) -> str:
+        data = picker.GetDataSet()
+        if data is None:
+            return ""
+        mesh = pv.wrap(data)
+        field = self._field
+        if field in mesh.cell_data:
+            value = np.asarray(mesh.cell_data[field][picker.GetCellId()], float)
+        elif field in mesh.point_data and picker.GetPointId() >= 0:
+            value = np.asarray(mesh.point_data[field][picker.GetPointId()], float)
+        else:
+            return ""
+        unit = FIELD_UNITS.get(field, "")
+        if value.size == 3:
+            parts = ", ".join(f"{c:.3g}" for c in value)
+            return f"{field} {np.linalg.norm(value):.4g} {unit} ({parts})".replace("  ", " ")
+        return f"{field} {float(value.ravel()[0]):.4g} {unit}".strip()
+
+    def gauge_point(self, x: int, y: int) -> np.ndarray | None:
+        """Where a click puts a gauge or probe: on what is under it, moved half a cell into the water, or on the bed
+        (free surface) or at mid-height of the domain when nothing is."""
+        lo, hi = self._bounds
+        picker, point = self._pick(x, y)
+        if picker is not None:
+            normal = np.array(picker.GetPickNormal(), float)
+            towards = np.array(self.plotter.camera_position[0], float) - point
+            if np.linalg.norm(normal) > 0 and np.dot(normal, towards) < 0:
+                normal = -normal  # the side seen: the water side of a wall
+            point = point + 0.5 * self._cell * normal
+        else:
+            level = lo[2] + 0.5 * self._cell if self._free_surface else (lo[2] + hi[2]) / 2
+            point = self._on_plane(x, y, level)
+            if point is None:
+                return None
+        inner = [min(max(c, a + 0.5 * self._cell), b - 0.5 * self._cell) for c, a, b in zip(point, lo, hi)]
+        return np.round(np.array(inner, float), 6)
+
+    def _place_probe(self, x: int, y: int) -> None:
+        point = self.gauge_point(x, y)
+        if point is None:
+            self.readout.setText("That is outside the domain: click on the model.")
+            return
+        self.probe_picked.emit([float(c) for c in point])
+
+    def _measure_at(self, x: int, y: int) -> None:
+        picker, point = self._pick(x, y)
+        if picker is None:
+            self.readout.setText("Click on the model: on a shape, a boundary or a slice.")
+            return
+        self._measure = (self._measure if len(self._measure) == 1 else []) + [point]
+        if len(self._measure) == 2:
+            a, b = self._measure
+            d = b - a
+            self.readout.setText(f"Distance {np.linalg.norm(d):.4g} m   (dx {d[0]:.4g}, dy {d[1]:.4g}, dz {d[2]:.4g})   "
+                                 f"in plan {np.hypot(d[0], d[1]):.4g} m")  # fmt: skip
+        else:
+            self.readout.setText(f"From x {point[0]:.4g}, y {point[1]:.4g}, z {point[2]:.4g}: click the second point.")
+        self._draw_markers()
+        self.plotter.render()
+
+    def _extend_line(self, x: int, y: int) -> None:
+        picker, point = self._pick(x, y)
+        if picker is None:
+            point = self._on_plane(x, y, self._bounds[0][2])
+        if point is None:
+            self.readout.setText("That is outside the domain: click on the model.")
+            return
+        self._drawing.append([round(float(point[0]), 6), round(float(point[1]), 6)])
+        length = sum(math.dist(a, b) for a, b in zip(self._drawing, self._drawing[1:]))
+        self.readout.setText(f"{len(self._drawing)} points, {length:.4g} m. Double-click, right-click or Enter to finish.")
+        self._draw_markers()
+        self.plotter.render()
+
+    def _finish_line(self) -> None:
+        points = [p for i, p in enumerate(self._drawing) if i == 0 or p != self._drawing[i - 1]]
+        self._drawing = []
+        if len(points) < 2:
+            self.readout.setText("A long-section line needs at least two points.")
+            return
+        self.readout.setText(f"Long-section line of {len(points)} points kept: the long section now follows it.")
+        self.section_line_drawn.emit(points)
+
+    def _draw_markers(self) -> None:
+        """The gauges and probes, the long-section line (and the one being drawn), and a measurement."""
+        for name in ("probe-markers", "probe-labels", "section-line", "section-points", "drawing-line",
+                     "drawing-points", "measure-line", "measure-points"):  # fmt: skip
+            self.plotter.remove_actor(name, render=False)
+        size = max(self._cell * 0.6, 1e-4)
+        if self._probes:
+            points = np.array(self._probes, float)
+            glyphs = pv.PolyData(points).glyph(geom=pv.Sphere(radius=size), scale=False, orient=False)
+            self.plotter.add_mesh(glyphs, color=MARKER, name="probe-markers", pickable=False, reset_camera=False,
+                                  render=False)  # fmt: skip
+            self.plotter.add_point_labels(points + [0, 0, 2.5 * size], [str(i + 1) for i in range(len(points))],
+                                          font_size=10, text_color="#27313b", shape_color="white", shape_opacity=0.7,
+                                          point_size=1, always_visible=True, name="probe-labels", pickable=False,
+                                          reset_camera=False, render=False)  # fmt: skip
+        z = self._bounds[0][2] + 0.02 * self._cell
+        for key, points, colour in (("section", self._section_line, LINE), ("drawing", self._drawing, ACCENT_LINE)):
+            if len(points) >= 1:
+                xyz = np.array([[p[0], p[1], z] for p in points], float)
+                if len(xyz) >= 2:
+                    self.plotter.add_mesh(pv.lines_from_points(xyz), color=colour, line_width=4, name=f"{key}-line",
+                                          pickable=False, reset_camera=False, render=False)  # fmt: skip
+                self.plotter.add_mesh(pv.PolyData(xyz), color=colour, point_size=9, render_points_as_spheres=True,
+                                      name=f"{key}-points", pickable=False, reset_camera=False, render=False)  # fmt: skip
+        if self._measure:
+            xyz = np.array(self._measure, float)
+            if len(xyz) == 2:
+                self.plotter.add_mesh(pv.Line(xyz[0], xyz[1]), color=ACCENT_LINE, line_width=3, name="measure-line",
+                                      pickable=False, reset_camera=False, render=False)  # fmt: skip
+            self.plotter.add_mesh(pv.PolyData(xyz), color=ACCENT_LINE, point_size=10, render_points_as_spheres=True,
+                                  name="measure-points", pickable=False, reset_camera=False, render=False)  # fmt: skip
+
+    def show_markers(self, project: Project) -> None:
+        """Draw the gauges and the long-section line of the project again (after they change)."""
+        self.set_project(project)
+        self._draw_markers()
         self.plotter.render()
 
     # -- camera
@@ -220,9 +574,14 @@ class Viewer(QWidget):
             self.plotter.add_mesh(surface, color=HIGHLIGHT, opacity=0.65, name="highlight",
                                   reset_camera=False, pickable=False, render=False)  # fmt: skip
 
+    def apply_theme(self) -> None:
+        """The background of the theme in use (what is drawn takes its colours when it is drawn again)."""
+        colours = style.colours()
+        self.plotter.set_background(colours["view_bottom"], top=colours["view_top"])
+
     def show_message(self, text: str) -> None:
         self._begin("message:" + text)
-        self.plotter.add_text(text, position="upper_left", font_size=11, color="#44505c")
+        self.plotter.add_text(text, position="upper_left", font_size=11, color=style.colours()["view_line"])
         self.plotter.render()
 
     def close_view(self) -> None:
@@ -283,13 +642,15 @@ class Viewer(QWidget):
 
     def show_geometry(self, project: Project, case_dir: Path, on_point_moved=None, handles=None) -> None:
         fresh = self._begin("geometry")
+        self.set_project(project)
         base = project.mesh.base
         if project.channel is not None:
             self._show_channel(project.channel)
         else:
             (x0, y0, z0), (x1, y1, z1) = base.min, base.max
             box = pv.Box(bounds=(x0, x1, y0, y1, z0, z1))
-            self.plotter.add_mesh(box, style="wireframe", color="#44505c", line_width=1.5, reset_camera=False)
+            self.plotter.add_mesh(box, style="wireframe", color=style.colours()["view_line"], line_width=1.5,
+                                  reset_camera=False, pickable=False)  # an outline: clicks go through it  # fmt: skip
             labels = {face: base.faces[face].name for face in FACES}
             centres = _face_centres(base)
             self.plotter.add_point_labels(
@@ -305,13 +666,14 @@ class Viewer(QWidget):
                 continue
             self._parts[shape.name] = surface
             if shape.role == "refinement":
-                self.plotter.add_mesh(surface, color=REGION, opacity=0.18, reset_camera=False)
-                self.plotter.add_mesh(surface, style="wireframe", color=REGION, opacity=0.5, reset_camera=False)
+                self._add(surface, shape.name, color=REGION, opacity=0.18, reset_camera=False, pickable=False)
+                self.plotter.add_mesh(surface, style="wireframe", color=REGION, opacity=0.5, reset_camera=False,
+                                      pickable=False)  # fmt: skip
             else:
                 # the shape that contains the fluid is see-through, so the point inside it shows
                 opacity = 0.3 if shape.name == project.mesh.fluid_inside else 1.0
-                self.plotter.add_mesh(surface, color=SOLID, smooth_shading=True, opacity=opacity,
-                                      reset_camera=False)  # fmt: skip
+                self._add(surface, shape.name, color=SOLID, smooth_shading=True, opacity=opacity,
+                          reset_camera=False)  # fmt: skip
         if uses_snappy(project):
             try:
                 point = location_in_mesh(project, case_dir)
@@ -326,7 +688,8 @@ class Viewer(QWidget):
                     test_callback=False, interaction_event="end",
                 )  # fmt: skip
             else:
-                self.plotter.add_mesh(pv.Sphere(radius=size, center=point), color="#e45756", reset_camera=False)
+                self.plotter.add_mesh(pv.Sphere(radius=size, center=point), color="#e45756", reset_camera=False,
+                                      pickable=False)  # fmt: skip
         if handles is not None:
             self._add_handles(*handles)
         if missing:
@@ -346,7 +709,7 @@ class Viewer(QWidget):
         for name, (points, cells) in parts.items():
             faces = np.hstack([np.full((len(cells), 1), cells.shape[1]), cells]).ravel()
             surface = pv.PolyData(np.asarray(points, float), faces)
-            self.plotter.add_mesh(surface, reset_camera=False, **CHANNEL_STYLE.get(name, {"color": SOLID}))
+            self._add(surface, name, reset_camera=False, **CHANNEL_STYLE.get(name, {"color": SOLID}))
             if name in ("inlet", "outlet"):
                 caps[name] = np.asarray(points)[cells[0]].mean(axis=0)
         water = chm.water_surface(ch)
@@ -372,20 +735,20 @@ class Viewer(QWidget):
                 self.plotter.add_mesh(
                     surface.extract_feature_edges(boundary_edges=True, feature_edges=False,
                                                   manifold_edges=False, non_manifold_edges=False),
-                    color=colour, line_width=2, label=name, reset_camera=False,
+                    color=colour, line_width=2, label=name, reset_camera=False, pickable=False,
                 )  # fmt: skip
                 if field is None:
-                    self.plotter.add_mesh(surface, color=colour, opacity=0.08, show_edges=edges,
-                                          edge_color=colour, reset_camera=False)  # fmt: skip
+                    self._add(surface, name, color=colour, opacity=0.08, show_edges=edges, edge_color=colour,
+                              reset_camera=False)  # fmt: skip
             elif field is not None and field in surface.array_names:
-                self.plotter.add_mesh(surface, scalars=field, preference="cell", cmap="turbo",
-                                      show_edges=edges, scalar_bar_args={"title": field, "color": "#27313b"},
-                                      reset_camera=False)  # fmt: skip
+                self._add(surface, name, scalars=field, preference="cell", cmap="turbo", show_edges=edges,
+                          scalar_bar_args={"title": field, "color": style.colours()["view_text"]},
+                          reset_camera=False)  # fmt: skip
             else:
                 opacity = (0.12 if field is not None else 0.3) if wraps else 1.0
-                self.plotter.add_mesh(surface, color=SOLID if field is not None else colour,
-                                      show_edges=edges and not (wraps and field is not None),
-                                      opacity=opacity, label=name, reset_camera=False)  # fmt: skip
+                self._add(surface, name, color=SOLID if field is not None else colour,
+                          show_edges=edges and not (wraps and field is not None), opacity=opacity, label=name,
+                          reset_camera=False, pickable=not wraps)  # a see-through wall lets clicks reach inside  # fmt: skip
 
     def show_mesh(self, data: CaseData, patch_types: Mapping[str, str]) -> None:
         fresh = self._begin("mesh")
@@ -397,7 +760,7 @@ class Viewer(QWidget):
                 self.plotter.add_mesh(cut, color="#eef2f6", show_edges=True, edge_color="#55616d",
                                       reset_camera=False)  # fmt: skip
             self.plotter.add_text(f"{internal.n_cells:,} cells", position="upper_left", font_size=11,
-                                  color="#27313b")  # fmt: skip
+                                  color=style.colours()["view_text"])  # fmt: skip
         self.plotter.add_legend(bcolor=None, face="rectangle", size=(0.16, 0.16))
         self._end(fresh)
 
@@ -416,6 +779,7 @@ class Viewer(QWidget):
             self.show_mesh(data, patch_types)
             return
         fresh = self._begin("results")
+        self._field = field
         internal = data.internal
         if mode == "water" and "alpha.water" in internal.array_names:
             # the free surface: where the cells are half water, half air
@@ -423,12 +787,12 @@ class Viewer(QWidget):
             surface = internal.cell_data_to_point_data().contour([0.5], scalars="alpha.water")
             if surface.n_points:
                 if field != "alpha.water" and field in surface.array_names:
-                    self.plotter.add_mesh(surface, scalars=field, cmap="turbo", smooth_shading=True,
-                                          show_edges=edges, reset_camera=False,
-                                          scalar_bar_args={"title": field, "color": "#27313b"})  # fmt: skip
+                    self._add(surface, "water surface", scalars=field, cmap="turbo", smooth_shading=True,
+                              show_edges=edges, reset_camera=False,
+                              scalar_bar_args={"title": field, "color": style.colours()["view_text"]})  # fmt: skip
                 else:
-                    self.plotter.add_mesh(surface, color=WATER_BLUE, smooth_shading=True, show_edges=edges,
-                                          reset_camera=False)  # fmt: skip
+                    self._add(surface, "water surface", color=WATER_BLUE, smooth_shading=True, show_edges=edges,
+                              reset_camera=False)  # fmt: skip
         elif mode == "surface":
             self._add_patches(data, patch_types, field, edges)
         else:
@@ -440,9 +804,9 @@ class Viewer(QWidget):
             origin[axis] = lo + (hi - lo) * min(max(position, 0.001), 0.999)
             cut = internal.slice(normal=normal, origin=origin)
             if cut.n_cells and field in cut.array_names:
-                self.plotter.add_mesh(cut, scalars=field, preference="cell", cmap="turbo", show_edges=edges,
-                                      scalar_bar_args={"title": field, "color": "#27313b"},
-                                      reset_camera=False)  # fmt: skip
+                self._add(cut, f"slice normal to {normal}", scalars=field, preference="cell", cmap="turbo",
+                          show_edges=edges, scalar_bar_args={"title": field, "color": style.colours()["view_text"]},
+                          reset_camera=False)  # fmt: skip
         label = field if time is None else f"{field}   at {time:g}"
-        self.plotter.add_text(label, position="upper_left", font_size=11, color="#27313b")
+        self.plotter.add_text(label, position="upper_left", font_size=11, color=style.colours()["view_text"])
         self._end(fresh)

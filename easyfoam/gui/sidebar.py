@@ -6,8 +6,8 @@ from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate
 
+from easyfoam.gui import style
 from easyfoam.gui.icons import pixmap
-from easyfoam.gui.style import ACCENT, MUTED, SELECTED, STATE_COLOURS, STATE_ICONS, TEXT
 
 ICON_ROLE = Qt.ItemDataRole.UserRole + 1
 DETAIL_ROLE = Qt.ItemDataRole.UserRole + 2
@@ -43,24 +43,25 @@ class StepDelegate(QStyledItemDelegate):
         if selected or hovered:
             path = QPainterPath()
             path.addRoundedRect(rect, 8, 8)
-            painter.fillPath(path, QColor(SELECTED if selected else "#e9edf2"))
+            painter.fillPath(path, QColor(style.SELECTED if selected else style.colours()["step_hover"]))
         if selected:
-            painter.fillRect(QRect(rect.left(), rect.top() + 10, 3, rect.height() - 20), QColor(ACCENT))
+            painter.fillRect(QRect(rect.left(), rect.top() + 10, 3, rect.height() - 20), QColor(style.ACCENT))
 
         name = index.data(ICON_ROLE)
-        colour = ACCENT if selected else (TEXT if enabled else "#aab4c0")
+        colour = style.ACCENT if selected else (style.TEXT if enabled else style.colours()["disabled_text"])
         state = index.data(STATE_ROLE) or "todo"
         if self.compact:
             if name:
                 painter.drawPixmap(rect.center().x() - 12, rect.center().y() - 13, pixmap(name, 21, colour))
-            painter.drawPixmap(rect.center().x() + 4, rect.center().y() + 3, pixmap(STATE_ICONS[state], 13, STATE_COLOURS[state]))
+            badge = pixmap(style.STATE_ICONS[state], 13, style.STATE_COLOURS[state])
+            painter.drawPixmap(rect.center().x() + 4, rect.center().y() + 3, badge)
             painter.restore()
             return
         if name:
             painter.drawPixmap(rect.left() + 14, rect.center().y() - 10, pixmap(name, 21, colour))
 
         badge_x = rect.right() - 28
-        painter.drawPixmap(badge_x, rect.center().y() - 8, pixmap(STATE_ICONS[state], 17, STATE_COLOURS[state]))
+        painter.drawPixmap(badge_x, rect.center().y() - 8, pixmap(style.STATE_ICONS[state], 17, style.STATE_COLOURS[state]))
 
         text_left = rect.left() + 48
         text_width = badge_x - text_left - 6
@@ -68,14 +69,14 @@ class StepDelegate(QStyledItemDelegate):
         title_font.setPointSizeF(option.font.pointSizeF() + 0.5)
         title_font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(title_font)
-        painter.setPen(QColor(TEXT if enabled else "#aab4c0"))
+        painter.setPen(QColor(style.TEXT if enabled else style.colours()["disabled_text"]))
         painter.drawText(QRect(text_left, rect.top() + 7, text_width, 20),
                          Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, index.data() or "")  # fmt: skip
 
         detail_font = QFont(option.font)
         detail_font.setPointSizeF(max(7.0, option.font.pointSizeF() - 1.0))
         painter.setFont(detail_font)
-        painter.setPen(QColor(STATE_COLOURS[state] if state in ("warning", "error") else MUTED))
+        painter.setPen(QColor(style.STATE_COLOURS[state] if state in ("warning", "error") else style.MUTED))
         detail = painter.fontMetrics().elidedText(index.data(DETAIL_ROLE) or "", Qt.TextElideMode.ElideRight, text_width)
         painter.drawText(QRect(text_left, rect.top() + 26, text_width, 18),
                          Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, detail)  # fmt: skip

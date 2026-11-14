@@ -201,7 +201,7 @@ Open items:
 - Terrain: breaklines and building footprints; burning a surveyed channel into a coarser ground.
 - Long sections on terrain follow the axis of the base mesh; a centreline drawn on the map.
 
-## v0.13 - hydraulic structures from design values (this version)
+## v0.13 - hydraulic structures from design values (done)
 
 - A **Structure** menu in the Geometry step and an `easyfoam structure` command make six structures
   from their design values, drawn from the side and from above as they are typed: an ogee crest
@@ -218,6 +218,27 @@ Open items:
   (USBR Type IX), Parshall flumes; wing walls and aprons for culverts.
 - Structures placed on a built channel, following its bed slope and curved centreline.
 - A rating curve read straight from a structure's design (head against discharge).
+
+## v0.14 - easier to use (this version)
+
+- **Reports**: one click (toolbar, File menu, Results step, `easyfoam report`) writes a web page or a
+  PDF for a design note: the set-up, the mesh, the run, monitors, the 3D view and every plot, and the
+  results checked against theory, each check with its verdict.
+- **Search** (Ctrl+K) for every setting, section, choice and command, including words the window
+  does not use itself (tailwater, gauge, Strickler, CFL, scour).
+- Long forms in **sections that fold** and remember it; the ones most projects do not need start
+  folded and say in a few words what they hold.
+- **Picking** in the 3D view: the value under the cursor, gauges and probes placed with a click,
+  distances, and the line the long section follows.
+- Plots and log in a **window of their own** (a second screen); files **dropped** on the window;
+  a **?** per step that opens the tutorial at that step; **project templates**; a **dark theme** and
+  the text size.
+
+Open items:
+
+- Re-take the tutorial pictures with the new toolbar, sections and view bar.
+- More checks in reports: rating curves against weir formulas, energy dissipation of basins, culvert
+  control (inlet or outlet).
 
 ## Next for hydraulics
 

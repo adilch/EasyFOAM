@@ -63,7 +63,19 @@ class Centreline:
 
 
 def default_centreline(project: Project) -> Centreline:
-    """The centreline of a built channel, or else a straight axis along x through the middle of the base mesh."""
+    """The line drawn for the long section in the 3D view; or the centreline of a built channel; or else a straight
+    axis along x through the middle of the base mesh."""
+    drawn = np.asarray(getattr(project, "section_line", None) or [], float).reshape(-1, 2)
+    if len(drawn) >= 2 and np.linalg.norm(np.diff(drawn, axis=0), axis=1).sum() > 0:
+        if project.channel is not None:
+            from easyfoam import channel
+
+            half = channel.section(project.channel).half_width
+        else:
+            base = project.mesh.base
+            along_x = abs(drawn[-1, 0] - drawn[0, 0]) >= abs(drawn[-1, 1] - drawn[0, 1])
+            half = (base.max[1] - base.min[1] if along_x else base.max[0] - base.min[0]) / 2
+        return Centreline(drawn, half)
     if project.channel is not None:
         from easyfoam import channel
 

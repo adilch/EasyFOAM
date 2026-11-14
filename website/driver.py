@@ -319,11 +319,14 @@ class Driver:
         from PySide6.QtCore import QRect
         from PySide6.QtWidgets import QTableWidget
 
+        from easyfoam.gui.layout import shown_if_unfolded, unfold_to
         from easyfoam.gui.main_window import STEPS
 
         w = self.w
 
         def in_view(view, rect) -> QRect:
+            if unfold_to(view):  # in a folded section: open it, and place the mark once it has opened
+                self.settle(0.3)
             return QRect(view.viewport().mapTo(self._root(), rect.topLeft()), rect.size())
 
         def step(name: str) -> QRect:
@@ -355,7 +358,7 @@ class Driver:
             from PySide6.QtWidgets import QPushButton
 
             for candidate in parent.findChildren(QPushButton):
-                if candidate.text().strip() == text and candidate.isVisible():
+                if candidate.text().strip() == text and shown_if_unfolded(candidate):
                     return candidate
             raise ValueError(f"no button {text!r}")
 
@@ -365,6 +368,16 @@ class Driver:
     def _targets(self, step: Step) -> list:
         namespace = self._namespace()
         return [eval(mark.at, namespace) for mark in step.marks]  # noqa: S307 - our own tutorial files
+
+    def _unfold_marked(self, step: Step) -> None:
+        """Open the folded sections of the forms that hold the marked controls, as a reader would."""
+        from PySide6.QtWidgets import QWidget
+
+        from easyfoam.gui.layout import unfold_to
+
+        for target in self._targets(step):
+            if isinstance(target, QWidget):
+                unfold_to(target)
 
     def shot(self, number: int, step: Step) -> None:
         from PySide6.QtCore import QPoint, QRect
@@ -387,6 +400,7 @@ class Driver:
                 self.w.steps.setCurrentRow(row)
         if step.tab:
             self.w._show_tab(step.tab)
+        self._unfold_marked(step)
         self.settle(0.9)
 
         scroll = self.w.stack.currentWidget()

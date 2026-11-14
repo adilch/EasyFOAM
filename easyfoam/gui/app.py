@@ -58,9 +58,10 @@ def main(argv: list[str] | None = None) -> int:
 
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setApplicationName("EasyFOAM")
-    from easyfoam.gui.style import apply_style
+    from easyfoam.gui import state, style
 
-    apply_style(app)
+    style.choose(*state.load_appearance())  # the theme and text size of last time
+    style.apply_style(app)
     window = MainWindow()
     window.show()
     if args.case:

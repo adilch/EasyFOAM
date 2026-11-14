@@ -20,8 +20,9 @@ from PySide6.QtWidgets import (
 )
 
 from easyfoam import structures as sm
+from easyfoam.gui import style
 from easyfoam.gui.icons import icon
-from easyfoam.gui.style import MUTED, WARNING, set_primary
+from easyfoam.gui.style import set_primary
 from easyfoam.gui.widgets import NOT_NEGATIVE, POSITIVE, FloatEdit
 from easyfoam.model import Structure
 
@@ -89,7 +90,7 @@ class StructurePreview(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.fillRect(self.rect(), QColor("#fbfcfd"))
         if self.built is None or self.structure is None:
-            painter.setPen(QColor(MUTED))
+            painter.setPen(QColor(style.MUTED))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Cannot draw this structure yet")
             return
         half = self.width() // 2
@@ -115,7 +116,7 @@ class StructurePreview(QWidget):
         painter.setPen(QColor("#27313b"))
         painter.drawText(left + 10, 18, "Side view, flow to the right")
         if screen.rise > 1.05:
-            painter.setPen(QColor(MUTED))
+            painter.setPen(QColor(style.MUTED))
             painter.drawText(left + 10, 34, f"heights drawn {screen.rise:.2g} times larger")
         bed_left, bed_right = screen(x0 - pad, st.bed), screen(x1 + pad, st.bed)
         painter.setPen(QPen(GROUND, 2.4))
@@ -141,7 +142,7 @@ class StructurePreview(QWidget):
         painter.setPen(QColor("#27313b"))
         painter.drawText(left + 10, 18, f"Plan, {st.width:.3g} m wide")
         if screen.rise > 1.05:
-            painter.setPen(QColor(MUTED))
+            painter.setPen(QColor(style.MUTED))
             painter.drawText(left + 10, 34, f"widths drawn {screen.rise:.2g} times larger")
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(QColor("#e3eefb")))
@@ -171,7 +172,7 @@ class StructureDialog(QDialog):
         self.kind.setCurrentIndex(max(0, self.kind.findData(start.kind)))
         self.purpose = QLabel("")
         self.purpose.setWordWrap(True)
-        self.purpose.setStyleSheet(f"color: {MUTED};")
+        self.purpose.setStyleSheet(f"color: {style.MUTED};")
 
         self.station = FloatEdit(start.station)
         self.bed = FloatEdit(start.bed)
@@ -228,7 +229,7 @@ class StructureDialog(QDialog):
             "that the mesh is cut cleanly; snappyHexMesh cuts it out of the base mesh like any other shape."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color: {MUTED};")
+        hint.setStyleSheet(f"color: {style.MUTED};")
         right.addWidget(hint)
         top = QHBoxLayout()
         top.addLayout(left, 2)
@@ -298,14 +299,14 @@ class StructureDialog(QDialog):
         found = sm.problems(st)
         if found:
             self.status.setText("To make this structure: " + "; ".join(found) + ".")
-            self.status.setStyleSheet(f"color: {WARNING};")
+            self.status.setStyleSheet(f"color: {style.WARNING};")
             self.preview.show_structure(None, None)
             self.info.setText("")
         else:
             built = sm.build(st)
             warnings = sm.fit_warnings(st, *self._box) if self._box is not None else []
             self.status.setText("Check where it stands: " + "; ".join(warnings) + "." if warnings else "")
-            self.status.setStyleSheet(f"color: {WARNING};" if warnings else "")
+            self.status.setStyleSheet(f"color: {style.WARNING};" if warnings else "")
             self.preview.show_structure(st, built)
             self.info.setText("<ul style='margin-left: -20px'>" + "".join(f"<li>{line}</li>" for line in built.info)
                               + "</ul>")  # fmt: skip

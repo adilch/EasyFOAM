@@ -29,8 +29,9 @@ from PySide6.QtWidgets import (
 )
 
 from easyfoam import drawn
+from easyfoam.gui import style
 from easyfoam.gui.icons import icon
-from easyfoam.gui.style import ACCENT, ERROR, MUTED, set_primary
+from easyfoam.gui.style import set_primary
 from easyfoam.gui.widgets import FloatEdit
 
 #: plane -> names of the two directions drawn in
@@ -249,13 +250,13 @@ class SketchCanvas(QWidget):
                     painter.drawLine(QPointF(at, 0), QPointF(at, self.height()))
                 else:
                     painter.drawLine(QPointF(0, at), QPointF(self.width(), at))
-                painter.setPen(QColor(MUTED))
+                painter.setPen(QColor(style.MUTED))
                 label = f"{value:.6g}"
                 if vertical:
                     painter.drawText(QPointF(at + 3, self.height() - 4), label)
                 else:
                     painter.drawText(QPointF(4, at - 3), label)
-        painter.setPen(QColor(MUTED))
+        painter.setPen(QColor(style.MUTED))
         painter.drawText(QPointF(self.width() - 46, self.height() - 18), f"{self.axes[0]} [m] →")
         painter.drawText(QPointF(4, 14), f"↑ {self.axes[1]} [m]")
 
@@ -268,7 +269,7 @@ class SketchCanvas(QWidget):
 
         if self._points:
             sound = self.problem() is None
-            colour = QColor(ACCENT if sound or len(self._points) < 3 else ERROR)
+            colour = QColor(style.ACCENT if sound or len(self._points) < 3 else style.ERROR)
             polygon = QPolygonF([self.to_screen(u, v) for u, v in self._points])
             fill = QColor(colour)
             fill.setAlpha(45)
@@ -322,7 +323,7 @@ class SketchDialog(QDialog):
         fit = QPushButton(icon("maximize"), " Fit view")
         clear = QPushButton(icon("trash-2"), " Clear")
         self.position = QLabel("")
-        self.position.setStyleSheet(f"color: {MUTED};")
+        self.position.setStyleSheet(f"color: {style.MUTED};")
         self.status = QLabel("")
         self.status.setWordWrap(True)
         hint = QLabel(
@@ -330,7 +331,7 @@ class SketchDialog(QDialog):
             "Click on a side to add a corner there. The wheel zooms."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color: {MUTED};")
+        hint.setStyleSheet(f"color: {style.MUTED};")
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
@@ -421,7 +422,7 @@ class SketchDialog(QDialog):
             self.status.setStyleSheet("")
         else:
             self.status.setText(f"Not usable yet: {wrong}.")
-            self.status.setStyleSheet(f"color: {ERROR};")
+            self.status.setStyleSheet(f"color: {style.ERROR};")
 
     def _cell_edited(self, item: QTableWidgetItem) -> None:
         if self._filling:

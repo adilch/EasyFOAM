@@ -1,4 +1,4 @@
-"""Small things the application remembers between sessions (recent projects)."""
+"""Small things the application remembers between sessions: recent projects, the layout, folded sections."""
 
 from __future__ import annotations
 
@@ -67,4 +67,32 @@ def load_layout() -> dict:
 def save_layout(layout: dict) -> None:
     data = _read()
     data["layout"] = layout
+    _write(data)
+
+
+def load_sections() -> dict[str, bool]:
+    """Which sections of the forms were left folded (True) or open (False), by name."""
+    sections = _read().get("sections")
+    return {k: v for k, v in sections.items() if isinstance(v, bool)} if isinstance(sections, dict) else {}
+
+
+def save_section(key: str, folded: bool) -> None:
+    data = _read()
+    sections = data.get("sections") if isinstance(data.get("sections"), dict) else {}
+    sections[key] = folded
+    data["sections"] = sections
+    _write(data)
+
+
+def load_appearance() -> tuple[str, float]:
+    """The theme (light, dark or system) and the text size in points chosen last time."""
+    data = _read()
+    theme = data.get("theme") if data.get("theme") in ("light", "dark", "system") else "light"
+    size = data.get("text_size")
+    return theme, float(size) if isinstance(size, (int, float)) and 6 <= size <= 20 else 9.5
+
+
+def save_appearance(theme: str, text_size: float) -> None:
+    data = _read()
+    data["theme"], data["text_size"] = theme, text_size
     _write(data)

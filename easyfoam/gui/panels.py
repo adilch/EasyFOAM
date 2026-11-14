@@ -37,12 +37,14 @@ from easyfoam import geometry
 from easyfoam import structures as sm
 from easyfoam.foam.boundaryfile import Patch
 from easyfoam.gui.icons import icon
+from easyfoam.gui.layout import FoldingGroup
 from easyfoam.gui.series import describe as describe_series
 from easyfoam.gui.style import set_primary
 from easyfoam.gui.widgets import FRACTION, NOT_NEGATIVE, POSITIVE, FloatEdit, VectorEdit, between
 from easyfoam.model import (
     CONSTRAINT_TYPES,
     FACES,
+    KIND_LABELS,
     KINDS_FOR_TYPE,
     BaseFace,
     Boundary,
@@ -64,19 +66,6 @@ from easyfoam.solvers import (
 
 NAME_ROLE = Qt.ItemDataRole.UserRole  # == 0x0100
 
-KIND_LABELS = {
-    "velocityInlet": "Velocity inlet",
-    "pressureOutlet": "Pressure outlet",
-    "slip": "Slip (frictionless)",
-    "wall": "Wall (no slip)",
-    "movingWall": "Moving wall",
-    "flowRateInlet": "Inlet by flow rate",
-    "freeOutflow": "Free outflow",
-    "atmosphere": "Open to the atmosphere",
-    "waterLevelOutlet": "Outlet at a water level",
-    "waveInlet": "Wave maker",
-    "waveOutlet": "Wave-absorbing outlet",
-}
 KIND_ICONS = {
     "velocityInlet": "arrow-right-to-line",
     "pressureOutlet": "arrow-right-from-line",
@@ -205,6 +194,10 @@ class Panel(QWidget):
             return
         edit()
         self.changed.emit()
+        self.update_notes()
+
+    def update_notes(self) -> None:
+        """Say in a few words what each folded section holds (panels with such sections fill this in)."""
 
 
 # ---------------------------------------------------------------------------
@@ -864,7 +857,12 @@ class GeometryPanel(Panel):
             self, "Import geometry", "",
             "Geometry (*.stl *.step *.stp *.iges *.igs *.brep);;STL surfaces (*.stl);;CAD (*.step *.stp *.iges *.igs *.brep)",
         )  # fmt: skip
-        if not files:
+        if files:
+            self.import_files([Path(f) for f in files])
+
+    def import_files(self, files: list[Path]) -> None:
+        """Import geometry files, asking once for the unit they are drawn in (and, for CAD, how to treat faces)."""
+        if self.project is None or self.case_dir is None or not files:
             return
         units = {"metres": "m", "millimetres": "mm", "centimetres": "cm", "inches": "in"}
         choice, ok = QInputDialog.getItem(self, "Import geometry", "The file is drawn in", list(units), 0, False)
@@ -914,7 +912,7 @@ class MeshPanel(Panel):
         base_form.addRow("Cells", cells_row)
         base_form.addRow(self.summary)
         base_form.addRow(fit)
-        base = QGroupBox("Base mesh (box of cubes)")
+        base = FoldingGroup("Base mesh (box of cubes)", "mesh.base")
         base.setLayout(base_form)
         self.base_box = base
         self.channel_note = _hint(
@@ -968,7 +966,7 @@ class MeshPanel(Panel):
         options.addRow(self.add_layers)
         options.addRow(self.auto_location)
         options.addRow("Point inside the fluid", self.location)
-        box = QGroupBox("Around the geometry")
+        box = FoldingGroup("Around the geometry", "mesh.around")
         box.setLayout(options)
 
         self.generate = QPushButton(icon("mesh", "#ffffff"), "  Generate mesh")
@@ -1177,7 +1175,7 @@ class PhysicsPanel(Panel):
         flow.addRow("Near walls", self.wall_treatment)
         flow.addRow("Numerics", self.numerics)
         flow.addRow("Limit velocity [m/s], 0 = off", self.max_velocity)
-        flow_box = QGroupBox("Model")
+        flow_box = FoldingGroup("Model", "physics.model")
         flow_box.setLayout(flow)
 
         fluid = QFormLayout()
@@ -1186,7 +1184,7 @@ class PhysicsPanel(Panel):
         fluid.addRow("Density [kg/m³]", self.rho)
         fluid.addRow("Behaviour", self.viscosity_model)
         fluid.addRow(self.coeff_table)
-        fluid_box = QGroupBox("Fluid")
+        fluid_box = FoldingGroup("Fluid", "physics.fluid")
         fluid_box.setLayout(fluid)
 
         start = QFormLayout()
@@ -1194,7 +1192,7 @@ class PhysicsPanel(Panel):
         start.addRow("Turbulence intensity (0–1)", self.intensity)
         start.addRow("Turbulence length scale [m]", self.length)
         start.addRow(self.potential)
-        start_box = QGroupBox("Starting state and inlet turbulence")
+        self.start_box = start_box = FoldingGroup("Starting state and inlet turbulence", "physics.start", folded=True)
         start_box.setLayout(start)
 
         self.gravity = VectorEdit()
@@ -1231,7 +1229,7 @@ class PhysicsPanel(Panel):
         water.addRow(_hint("Water at the start, as boxes [m]. The fluid chosen above is the water."))
         water.addRow(self.water_table)
         water.addRow(water_buttons)
-        self.water_box = QGroupBox("Water and air (free surface)")
+        self.water_box = FoldingGroup("Water and air (free surface)", "physics.water")
         self.water_box.setLayout(water)
 
         tracer_buttons = QHBoxLayout()
@@ -1240,7 +1238,7 @@ class PhysicsPanel(Panel):
         tracer = QVBoxLayout()
         tracer.addWidget(self.tracer_table)
         tracer.addLayout(tracer_buttons)
-        tracer_box = QGroupBox("Tracers")
+        self.tracer_box = tracer_box = FoldingGroup("Tracers", "physics.tracers", folded=True)
         tracer_box.setLayout(tracer)
 
         layout = QVBoxLayout(self)
@@ -1303,6 +1301,16 @@ class PhysicsPanel(Panel):
         self.water_box.setVisible(multiphase)
         self.potential.setEnabled(not multiphase)
         self._fill_water()
+        self.update_notes()
+
+    def update_notes(self) -> None:
+        if self.project is None:
+            return
+        ph = self.project.physics
+        moving = any(ph.initial_velocity)
+        start = ("U = " + ", ".join(f"{c:g}" for c in ph.initial_velocity) + " m/s") if moving else "at rest"
+        self.start_box.set_note(start + (", potential flow first" if ph.potential_init else ""))
+        self.tracer_box.set_note(", ".join(t.name for t in self.project.tracers) or "none")
 
     def _fill_coefficients(self) -> None:
         ph = self.project.physics
@@ -1874,7 +1882,7 @@ class RunPanel(Panel):
         self.form.addRow("Saved results to keep", self.purge)
         self.form.addRow("Processor cores", self.processors)
         self.form.addRow("Stop below residual", self.residual_target)
-        box = QGroupBox("Run control")
+        box = FoldingGroup("Run control", "run.control")
         box.setLayout(self.form)
 
         self.run_button = QPushButton(icon("play", "#ffffff"), "  Run")
@@ -1914,7 +1922,7 @@ class RunPanel(Panel):
         forces.addRow("Speed [m/s] (0 = inlet)", self.ref_velocity)
         forces.addRow("Drag direction", self.drag_dir)
         forces.addRow("Lift direction", self.lift_dir)
-        self.force_box = force_box = QGroupBox("Forces")
+        self.force_box = force_box = FoldingGroup("Forces", "run.forces", folded=True)
         force_box.setLayout(forces)
 
         self.probe_table = QTableWidget(0, 3)
@@ -1936,7 +1944,7 @@ class RunPanel(Panel):
         probes.addWidget(_hint("Pressure and speed are recorded at these points every iteration."))
         probes.addWidget(self.probe_table)
         probes.addLayout(probe_buttons)
-        probe_box = QGroupBox("Probes")
+        self.probe_box = probe_box = FoldingGroup("Probes", "run.probes", folded=True)
         probe_box.setLayout(probes)
 
         self.flow_monitors = QLineEdit()
@@ -1948,7 +1956,7 @@ class RunPanel(Panel):
         self.flow_monitors.editingFinished.connect(self._flows_edited)
         flows = QFormLayout()
         flows.addRow("Through", self.flow_monitors)
-        flow_box = QGroupBox("Discharge")
+        self.flow_box = flow_box = FoldingGroup("Discharge", "run.discharge", folded=True)
         flow_box.setLayout(flows)
 
         self.rating_discharges = QLineEdit()
@@ -1981,7 +1989,7 @@ class RunPanel(Panel):
         rating.addRow("Crest level [m]", self.rating_crest)
         rating.addRow(self.rating_button)
         rating.addRow(self.rating_status)
-        self.rating_box = QGroupBox("Rating curve")
+        self.rating_box = FoldingGroup("Rating curve", "run.rating", folded=True)
         self.rating_box.setLayout(rating)
 
         self.test_inlet = QComboBox()
@@ -2007,7 +2015,7 @@ class RunPanel(Panel):
         test.addRow("Follow it for [s]", self.test_duration)
         test.addRow(self.test_button)
         test.addRow(self.test_status)
-        self.test_box = QGroupBox("Tracer test (residence time)")
+        self.test_box = FoldingGroup("Tracer test (residence time)", "run.tracer_test", folded=True)
         self.test_box.setLayout(test)
 
         layout.addWidget(box)
@@ -2088,6 +2096,19 @@ class RunPanel(Panel):
             "For a tank, model the water surface as a frictionless lid (symmetry) and use a single-fluid flow type."
             if multiphase else ""
         )
+        self.update_notes()
+
+    def update_notes(self) -> None:
+        p = self.project
+        if p is None:
+            return
+        multiphase = solver_spec(p.physics.solver).multiphase
+        self.force_box.set_note("not in free-surface runs" if multiphase else ("on" if p.forces.enabled else "off"))
+        count = len(p.probes)
+        self.probe_box.set_note(f"{count} point{'' if count == 1 else 's'}" if count else "none")
+        self.flow_box.set_note(", ".join(p.flow_monitors) or "none")
+        discharges = ", ".join(f"{q:g}" for q in p.rating.discharges)
+        self.rating_box.set_note(f"{discharges} m³/s" if discharges else "not set up")
 
     def _fill_test_boundaries(self) -> None:
         from easyfoam.casegen.mesh import predicted_patches
@@ -2265,6 +2286,7 @@ class ResultsPanel(Panel):
     compute_requested = Signal(str)
     hydraulics_requested = Signal(str)  # long | pressure | loads | shear
     export_requested = Signal()
+    report_requested = Signal()  # write a report of the project and its results
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -2296,7 +2318,7 @@ class ResultsPanel(Panel):
         form.addRow("Slice plane", self.normal)
         form.addRow("Slice position", self.position)
         form.addRow(self.edges)
-        box = QGroupBox("Display")
+        box = FoldingGroup("Display", "results.display")
         box.setLayout(form)
 
         self.function = QComboBox()
@@ -2307,7 +2329,7 @@ class ResultsPanel(Panel):
         calc = QFormLayout()
         calc.addRow("Quantity", self.function)
         calc.addRow(self.compute)
-        calc_box = QGroupBox("Derived quantities")
+        calc_box = FoldingGroup("Derived quantities", "results.derived", folded=True)
         calc_box.setLayout(calc)
 
         self.long_button = QPushButton(icon("chart-line"), " Long section")
@@ -2371,7 +2393,7 @@ class ResultsPanel(Panel):
         hydraulic.addRow(self.shear_button)
         hydraulic.addRow(self.export_button)
         hydraulic.addRow(self.hydraulics_info)
-        self.hydraulics_box = QGroupBox("Hydraulic results")
+        self.hydraulics_box = FoldingGroup("Hydraulic results", "results.hydraulics")
         self.hydraulics_box.setLayout(hydraulic)
         self.long_button.clicked.connect(lambda: self.hydraulics_requested.emit("long"))
         self.rating_button.clicked.connect(lambda: self.hydraulics_requested.emit("rating"))
@@ -2384,12 +2406,19 @@ class ResultsPanel(Panel):
         refresh.clicked.connect(self.refresh_requested)
         paraview = QPushButton(icon("external-link"), " Open in ParaView")
         paraview.clicked.connect(self.paraview_requested)
+        self.report_button = QPushButton(icon("file-text"), " Write a report…")
+        self.report_button.setToolTip(
+            "The set-up, the mesh, the run, plots and pictures, and the results checked against theory "
+            "(continuity, Bélanger, critical depth, the design of structures), as a web page or a PDF."
+        )
+        self.report_button.clicked.connect(self.report_requested)
         self.info = _hint("")
 
         layout = QVBoxLayout(self)
         layout.addWidget(box)
         layout.addWidget(refresh)
         layout.addWidget(paraview)
+        layout.addWidget(self.report_button)
         layout.addWidget(calc_box)
         layout.addWidget(self.info)
         layout.addWidget(self.hydraulics_box)

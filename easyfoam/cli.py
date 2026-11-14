@@ -304,6 +304,41 @@ def cmd_structure(args) -> int:
     return 0
 
 
+def cmd_report(args) -> int:
+    from easyfoam import report
+    from easyfoam.solvers import solver_spec
+
+    case = Path(args.case)
+    project = _load(case)
+    long = rating = None
+    if solver_spec(project.physics.solver).multiphase:
+        try:
+            from easyfoam import hydraulics as hy
+            from easyfoam.results import CaseResults
+
+            results = CaseResults(case, project.name)
+            chosen = [t for t in results.times if t > 0][-max(1, args.average):]
+            if chosen:
+                long = hy.average_sections([hy.long_section(results.read(t), project, case, time=t) for t in chosen])
+            if project.rating.discharges:
+                rating = hy.rating_curve(project, case) or None
+        except (ImportError, ValueError, KeyError, OSError, IndexError) as exc:
+            print(f"(no long section: {exc})")
+    built = report.build(project, case, long=long, rating=rating)
+    out = Path(args.output) if args.output else case / f"{project.name}-report.html"
+    if out.suffix.lower() == ".pdf":
+        try:
+            from PySide6.QtGui import QGuiApplication
+        except ImportError as exc:
+            raise CliError("a PDF needs PySide6 (pip install easyfoam[gui]); write an .html report instead") from exc
+        app = QGuiApplication.instance() or QGuiApplication([])  # noqa: F841 - the PDF writer needs it
+    report.write(built, out)
+    for check in built.checks:
+        print(f"  [{report.VERDICT_WORDS[check.verdict]:>15}] {check.what}: {check.found} (theory: {check.theory})")
+    print(f"Wrote {out}")
+    return 0
+
+
 def cmd_gui(args) -> int:
     from easyfoam.gui.app import main as gui_main
 
@@ -417,6 +452,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--set", action="append", metavar="NAME=VALUE",
                    help="a design value, for example design_head=0.12 (repeat)")  # fmt: skip
     p.set_defaults(func=cmd_structure)
+
+    p = sub.add_parser("report", help="a report for a design note: set-up, mesh, run and checks against theory")
+    p.add_argument("case")
+    p.add_argument("-o", "--output", help="file to write: .html (default) or .pdf")
+    p.add_argument("--average", type=int, default=4, help="saved times the long section is averaged over (default 4)")
+    p.set_defaults(func=cmd_report)
 
     p = sub.add_parser("gui", help="open the desktop application")
     p.add_argument("case", nargs="?")

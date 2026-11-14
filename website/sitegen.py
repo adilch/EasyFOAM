@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -277,6 +278,7 @@ def pages(tutorials: list[Tutorial], out: Path = OUT) -> dict[str, str]:
     files = {"index.html": index_page(tutorials), ".nojekyll": ""}
     for tutorial in tutorials:
         files[f"tutorials/{tutorial.slug}.html"] = tutorial_page(tutorial, tutorials, sizes)
+    files["tutorials/index.json"] = steps_index(tutorials)
     for asset in sorted(ASSETS.iterdir()):
         if asset.suffix in (".css", ".js", ".svg"):
             files[f"assets/{asset.name}"] = asset.read_text(encoding="utf-8")
@@ -285,6 +287,18 @@ def pages(tutorials: list[Tutorial], out: Path = OUT) -> dict[str, str]:
     for name, make in DOWNLOADS.items():
         files[name] = make()
     return files
+
+
+def steps_index(tutorials: list[Tutorial]) -> str:
+    """For the help button of the program: each tutorial, and the first of its steps that shows each workflow step."""
+    entries = []
+    for tutorial in tutorials:
+        screens: dict[str, int] = {}
+        for number, step in enumerate(tutorial.steps, start=1):
+            if step.screen and step.screen not in ("Welcome", "Dialog"):
+                screens.setdefault(step.screen, number)
+        entries.append({"slug": tutorial.slug, "title": tutorial.title, "topics": tutorial.topics, "steps": screens})
+    return json.dumps(entries, indent=1, ensure_ascii=False) + "\n"
 
 
 def missing_images(tutorials: list[Tutorial], out: Path = OUT) -> list[str]:

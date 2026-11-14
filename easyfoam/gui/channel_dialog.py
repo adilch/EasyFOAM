@@ -25,8 +25,9 @@ from PySide6.QtWidgets import (
 )
 
 from easyfoam import channel as chm
+from easyfoam.gui import style
 from easyfoam.gui.icons import icon
-from easyfoam.gui.style import MUTED, set_primary
+from easyfoam.gui.style import set_primary
 from easyfoam.gui.widgets import NOT_NEGATIVE, POSITIVE, FloatEdit
 from easyfoam.model import Channel, ChannelSegment
 
@@ -72,7 +73,7 @@ class ChannelPreview(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.fillRect(self.rect(), QColor("#fbfcfd"))
         if self.channel is None:
-            painter.setPen(QColor(MUTED))
+            painter.setPen(QColor(style.MUTED))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Nothing to show yet")
             return
         half = self.width() // 2
@@ -80,7 +81,7 @@ class ChannelPreview(QWidget):
             self._section(painter, 0, half)
             self._plan(painter, half, self.width() - half)
         except (ValueError, ZeroDivisionError, IndexError):
-            painter.setPen(QColor(MUTED))
+            painter.setPen(QColor(style.MUTED))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Cannot draw this channel yet")
             return
         painter.setPen(QPen(QColor("#d5dbe1"), 1))
@@ -112,7 +113,7 @@ class ChannelPreview(QWidget):
         painter.setPen(QColor("#27313b"))
         painter.drawText(left + 10, 18, "Cross-section, looking downstream")
         if screen.rise > 1.05:
-            painter.setPen(QColor(MUTED))
+            painter.setPen(QColor(style.MUTED))
             painter.drawText(left + 10, 34, f"heights drawn {screen.rise:.2g} times larger")
         if ch.water_depth > 0:
             water = clip_below(outline, ch.water_depth)
@@ -255,7 +256,7 @@ class ChannelDialog(QDialog):
             "barrel) and atmosphere."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color: {MUTED};")
+        hint.setStyleSheet(f"color: {style.MUTED};")
         right.addWidget(hint)
         top.addLayout(right, 3)
         layout = QVBoxLayout(self)
@@ -341,7 +342,7 @@ class ChannelDialog(QDialog):
                 flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
                 item.setFlags(flags | Qt.ItemFlag.ItemIsEditable if editable else flags)
                 if not editable:
-                    item.setForeground(QColor(MUTED))
+                    item.setForeground(QColor(style.MUTED))
                 self.pieces.setItem(row, column, item)
         self._filling = False
 

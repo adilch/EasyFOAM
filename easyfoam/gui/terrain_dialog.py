@@ -23,8 +23,9 @@ from PySide6.QtWidgets import (
 )
 
 from easyfoam import terrain as tr
+from easyfoam.gui import style
 from easyfoam.gui.icons import icon
-from easyfoam.gui.style import MUTED, set_primary
+from easyfoam.gui.style import set_primary
 from easyfoam.gui.widgets import FloatEdit
 
 #: colours of the ground from low to high
@@ -67,7 +68,7 @@ class GroundPreview(QWidget):
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor("#fbfcfd"))
         if self.picture is None:
-            painter.setPen(QColor(MUTED))
+            painter.setPen(QColor(style.MUTED))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text)
             return
         area = self.rect().adjusted(14, 30, -14, -14)
@@ -105,7 +106,7 @@ class TerrainDialog(QDialog):
         browse.clicked.connect(self._browse)
         self.about = QLabel("")
         self.about.setWordWrap(True)
-        self.about.setStyleSheet(f"color: {MUTED};")
+        self.about.setStyleSheet(f"color: {style.MUTED};")
 
         self.origin_x, self.origin_y = FloatEdit(0.0, digits=12), FloatEdit(0.0, digits=12)
         self.angle = FloatEdit(0.0)

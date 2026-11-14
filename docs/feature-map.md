@@ -59,7 +59,7 @@ current version, through WSL or natively), keeps **plain case folders** that
 remain usable by hand, and has no cell or core limits. That is the space
 EasyFOAM aims at. If that distinction does not matter to you, use BARAM.
 
-## Where EasyFOAM stands (v0.13)
+## Where EasyFOAM stands (v0.14)
 
 Legend: done = works and is tested end to end; partial; planned = see roadmap.
 
@@ -131,6 +131,13 @@ Legend: done = works and is tested end to end; partial; planned = see roadmap.
 | Live residual plot, convergence target, solver log, progress bar | done |
 | Graceful stop (saves first), continue a run, final state always saved | done |
 | Start page, step status badges, pre-run checklist, tooltips, SVG icons | done |
+| Search for every setting and command (Ctrl+K), with words the window does not use itself | done |
+| Forms in sections that fold and remember it; folded sections say what they hold | done |
+| Resizable and folding panels, plots and log in a window of their own, light and dark themes, text size | done |
+| Undo and redo; numbers typed with units and arithmetic; time a run still needs, alert when it ends | done |
+| Drag and drop of projects, geometry and surveys; project templates; tutorial for each step | done |
+| One-click report (HTML or PDF): inputs, mesh, run, monitors, pictures, plots, checks against theory | done |
+| Picking in the 3D view: values under the cursor, gauges by click, distances, the long-section line | done |
 | Step-by-step tutorials website, with pictures taken by running each tutorial in the real program | done |
 | Shape and boundary highlighting, view buttons, draggable point inside the fluid | done |
 | Drag and lift coefficients with live plot and forces in newtons | done |

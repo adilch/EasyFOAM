@@ -22,8 +22,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from easyfoam.gui import style
 from easyfoam.gui.icons import icon, pixmap
-from easyfoam.gui.style import ACCENT, set_primary
+from easyfoam.gui.style import set_primary
+from easyfoam.templates import list_templates
 
 #: key -> (icon, title, one-line description)
 EXAMPLES = {
@@ -84,7 +86,7 @@ class WelcomePage(QWidget):
         cards.setSpacing(12)
         for index, key in enumerate(SHOWN):
             name, label, text = EXAMPLES[key]
-            card = QPushButton(icon(name, ACCENT, 34), f"  {label}\n  {text}")
+            card = QPushButton(icon(name, style.ACCENT, 34), f"  {label}\n  {text}")
             card.setIconSize(QSize(34, 34))
             card.setProperty("card", True)
             card.setMinimumHeight(74)
@@ -158,6 +160,10 @@ class NewProjectDialog(QDialog):
         self.example = QComboBox()
         for key, (name, label, text) in EXAMPLES.items():
             self.example.addItem(icon(name), f"{label}  —  {text}", key)
+        for template in list_templates():  # set-ups of one's own, kept with File > Save as template
+            about = f"  —  {template.description}" if template.description else "  —  a template of your own"
+            self.example.addItem(icon("layout-template"), f"Template: {template.name}{about}",
+                                 f"template:{template.folder}")  # fmt: skip
         self.example.setCurrentIndex(max(0, self.example.findData(example)))
         self.path_hint = QLabel()
         self.path_hint.setProperty("role", "subtitle")
