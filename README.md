@@ -55,7 +55,7 @@ rotating machinery, STEP import, …) is listed with its status in
 
 ## Tutorials
 
-Fifteen step-by-step tutorials, from installing to a river reach read from a survey, are in [docs/](docs/index.html) as a
+Seventeen step-by-step tutorials, from installing to a river reach read from a survey, are in [docs/](docs/index.html) as a
 small website: open `docs/index.html` in a browser. Every click is numbered in a picture of the
 real program and every value is given.
 
@@ -67,7 +67,8 @@ real program and every value is given.
 | Waves in a flume | Lifting sluice gate |
 | Floating box | Spillway from your own geometry (STL) |
 | Draw your own weir (sketch pad and mouse handles) | Hydraulic jump: long section and loads |
-| Contact tank: water age and a tracer test | Build a channel with a bend |
+| Rating curve of a weir | Contact tank: water age and a tracer test |
+| Build a channel with a bend | A flood through a bend (hydrograph, rising tailwater, bed shear) |
 | A river reach from a survey | |
 
 The site is made from the tutorial descriptions in `website/tutorials/`. The same description

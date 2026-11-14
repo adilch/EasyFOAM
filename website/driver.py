@@ -140,6 +140,30 @@ class Driver:
         self.w.apply_terrain(ground, **settings)
         self.settle(0.8)
 
+    def open_series(self, attribute: str, series) -> None:
+        """Open the time-series table of the selected boundary (without blocking), filled in, to be pictured.
+
+        ``attribute`` is ``flow_series`` (an inflow hydrograph) or ``level_series`` (a tailwater that changes).
+        """
+        from easyfoam.gui.series import SeriesDialog
+
+        panel = self.w.boundary_panel
+        if attribute == "flow_series":
+            title, unit, constant, positive = "Inflow hydrograph", "m³/s", panel.flow_rate.value(), True
+        else:
+            title, unit, constant, positive = "Tailwater level in time", "m", panel.level.value(), False
+        self.dialog = SeriesDialog(series, title, unit, constant, positive, self.w.project.run.end_time, self.w)
+        self.dialog.setModal(False)
+        self.dialog.show()
+        self.settle(0.5)
+
+    def accept_series(self, attribute: str) -> None:
+        """Press "Use this series"."""
+        values = self.dialog.values()
+        self.close_dialog()
+        getattr(self.w.boundary_panel, f"set_{attribute}")(values)
+        self.settle(0.4)
+
     def close_dialog(self) -> None:
         if self.dialog is not None:
             self.dialog.close()

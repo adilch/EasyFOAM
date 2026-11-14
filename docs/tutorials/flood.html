@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A flood through a bend — EasyFOAM tutorials</title>
+<meta name="description" content="Send a flood hydrograph down a channel while the river downstream rises, follow the water round the bend and see where the bed would start to move.">
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="25" cy="32" r="8"/><path d="M8 15h14c11 0 13 7 23 7h11M8 49h14c11 0 13-7 23-7h11M41 32h15"/></svg><span>EasyFOAM</span><span class="brand-sub">tutorials</span></a>
+  <nav>
+    <a href="../index.html">All tutorials</a>
+    <a href="../tutorials/getting-started.html">Install</a>
+  </nav>
+</header>
+<div class="layout">
+<aside class="contents">
+  <a class="back" href="../index.html">← All tutorials</a>
+  <p class="contents-title">Steps</p>
+  <ol>
+<li><a href="#step-1">An empty project</a></li>
+<li><a href="#step-2">The channel</a></li>
+<li><a href="#step-3">A flood comes down</a></li>
+<li><a href="#step-4">The river downstream rises</a></li>
+<li><a href="#step-5">Rough bed and banks</a></li>
+<li><a href="#step-6">Discharge at both ends</a></li>
+<li><a href="#step-7">Run a minute</a></li>
+<li><a href="#step-8">The flood passes</a></li>
+<li><a href="#step-9">At the peak</a></li>
+<li><a href="#step-10">Where the bed would move</a></li>
+  </ol>
+</aside>
+<main class="tutorial">
+  <p class="crumb">Tutorial 16 of 17</p>
+  <h1>A flood through a bend</h1>
+  <p class="lead">Send a flood hydrograph down a channel while the river downstream rises, follow the water round the bend and see where the bed would start to move.</p>
+  <div class="chips"><span class="chip">about 25 min</span><span class="chip level-intermediate">Intermediate</span><span class="chip topic">Free surface</span><span class="chip topic">Open channels</span><span class="chip topic">Time series</span><span class="chip topic">Sediment</span></div>
+  <p>Rivers are rarely steady. A flood arrives as a hydrograph, a discharge that rises and falls, and the river downstream rises with it, which backs the water up. This tutorial gives the inlet of a channel a flood hydrograph and its outlet a tailwater that rises in time, both as tables of time and value. At the peak it looks at the water round the bend and at the shear stress on the bed: where it exceeds what the bed material can take, the bed would start to move.</p>
+<p>It uses the channel of the <em>Build a channel with a bend</em> tutorial: a trapezoid with a 1 m bed and a 60° bend.</p>
+  <div class="learn"><h3>What you will learn</h3><ul><li>give an inlet a flood hydrograph and an outlet a tailwater that changes in time</li><li>compare the discharge coming in and going out</li><li>draw the long section at the peak of the flood</li><li>work out the bed shear stress and where a gravel bed would move</li></ul><p class="run-time">Computer time: about a minute for the mesh and two or three minutes for the run, on four cores.</p></div>
+<section class="step" id="step-1">
+<h2><span class="step-number">1</span>An empty project</h2>
+<p>Start a new, empty project and call it <code>flood</code>.</p>
+<ol class="marks"><li>Type <code>flood</code>.</li><li>Click <strong>Create project</strong>.</li></ol>
+<figure><a href="img/flood/01.webp" class="zoom"><img src="img/flood/01.webp" alt="A flood through a bend, step 1: An empty project" loading="lazy" width="650" height="248"></a></figure>
+</section>
+<section class="step" id="step-2">
+<h2><span class="step-number">2</span>The channel</h2>
+<p>In <strong>Geometry</strong>, press <strong>Channel…</strong> and build the same channel as in the <em>Build a channel with a bend</em> tutorial: a trapezoid with a 1 m bed and 0.5 m banks at 1 to 1, a bed slope of 0.002, 6 m straight, a 60° bend of 8 m radius and 6 m straight, with water 0.35 m deep at the start.</p>
+<ol class="marks"><li>The centreline: straight <code>6</code>, a bend of radius <code>8</code> turning <code>60</code>°, straight <code>6</code>.</li><li>Press <strong>Build the channel</strong>.</li></ol>
+<figure><a href="img/flood/02.webp" class="zoom"><img src="img/flood/02.webp" alt="A flood through a bend, step 2: The channel" loading="lazy" width="1300" height="850"></a></figure>
+</section>
+<section class="step" id="step-3">
+<h2><span class="step-number">3</span>A flood comes down</h2>
+<p>In <strong>Boundaries</strong>, pick <strong>inlet</strong> and press <strong>Flow changes in time…</strong>. Type the hydrograph as a table of times and discharges: <strong>0.2 m³/s</strong> for the first 10 seconds, rising to <strong>0.45 m³/s</strong> at 35 s and staying there. Between the rows the discharge changes in a straight line. You can also paste two columns from a spreadsheet, or start from a ready-made flood shape.</p>
+<ol class="marks"><li>Times and discharges: <code>0</code> <code>0.2</code>, <code>10</code> <code>0.2</code>, <code>35</code> <code>0.45</code>, <code>60</code> <code>0.45</code>.</li><li><strong>Start from…</strong> offers a flood hydrograph, steps or a slow rise.</li><li>Press <strong>Use this series</strong>.</li></ol>
+<figure><a href="img/flood/03.webp" class="zoom"><img src="img/flood/03.webp" alt="A flood through a bend, step 3: A flood comes down" loading="lazy" width="950" height="575"></a></figure>
+</section>
+<section class="step" id="step-4">
+<h2><span class="step-number">4</span>The river downstream rises</h2>
+<p>Pick <strong>outlet</strong> and press <strong>Level changes in time…</strong>. The river downstream rises from <strong>0.35 m</strong> to <strong>0.42 m</strong> between 20 and 50 seconds, as the flood reaches it.</p>
+<ol class="marks"><li>Times and levels: <code>0</code> <code>0.35</code>, <code>20</code> <code>0.35</code>, <code>50</code> <code>0.42</code>, <code>60</code> <code>0.42</code>.</li><li>Press <strong>Use this series</strong>.</li></ol>
+<figure><a href="img/flood/04.webp" class="zoom"><img src="img/flood/04.webp" alt="A flood through a bend, step 4: The river downstream rises" loading="lazy" width="950" height="575"></a></figure>
+</section>
+<section class="step" id="step-5">
+<h2><span class="step-number">5</span>Rough bed and banks</h2>
+<p>Give <strong>bed</strong> and <strong>banks</strong> a Manning's n of <strong>0.025</strong>: an earth channel.</p>
+<ol class="marks"><li>The boundary <strong>bed</strong> (do the same for <strong>banks</strong>).</li><li><strong>Roughness</strong>: <em>Manning's n</em>.</li><li><strong>Manning's n</strong>: <code>0.025</code>.</li></ol>
+<figure><a href="img/flood/05.webp" class="zoom"><img src="img/flood/05.webp" alt="A flood through a bend, step 5: Rough bed and banks" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-6">
+<h2><span class="step-number">6</span>Discharge at both ends</h2>
+<p>In the <strong>Run</strong> step, record the discharge through both ends of the channel.</p>
+<ol class="marks"><li><strong>Discharge through</strong>: <code>inlet, outlet</code>.</li></ol>
+<figure><a href="img/flood/06.webp" class="zoom"><img src="img/flood/06.webp" alt="A flood through a bend, step 6: Discharge at both ends" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-7">
+<h2><span class="step-number">7</span>Run a minute</h2>
+<p>Make the mesh and run a minute of the flood on four cores.</p>
+<ol class="marks"><li>Click <strong>Mesh</strong> in the toolbar (or press <strong>F5</strong>).</li><li><strong>End time</strong>: <code>60</code> s.</li><li>Click <strong>Run</strong> in the toolbar (or press <strong>F6</strong>).</li></ol>
+<figure><a href="img/flood/07.webp" class="zoom"><img src="img/flood/07.webp" alt="A flood through a bend, step 7: Run a minute" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-8">
+<h2><span class="step-number">8</span>The flood passes</h2>
+<p>The <strong>Discharge</strong> tab shows the water coming in (negative: into the channel) and going out. The inflow follows the hydrograph exactly. The water in the channel starts still, so for the first seconds little leaves while the flow gets going; after that the outflow follows the flood, a little below the inflow while the water in the channel rises with it.</p>
+<ol class="marks"><li>Open the <strong>Discharge</strong> tab.</li></ol>
+<figure><a href="img/flood/08.webp" class="zoom"><img src="img/flood/08.webp" alt="A flood through a bend, step 8: The flood passes" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-9">
+<h2><span class="step-number">9</span>At the peak</h2>
+<p>In <strong>Results</strong>, press <strong>Long section</strong>: it is drawn for the latest saved time, at the peak of the flood. The stations follow the curved centreline; the water surface and the energy line fall gently round the bend.</p>
+<ol class="marks"><li>Press <strong>Long section</strong>.</li><li>Discharge, depths and the Froude number at the peak.</li></ol>
+<figure><a href="img/flood/09.webp" class="zoom"><img src="img/flood/09.webp" alt="A flood through a bend, step 9: At the peak" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-10">
+<h2><span class="step-number">10</span>Where the bed would move</h2>
+<p>Give the size of the bed material, <strong>8 mm</strong> gravel, and press <strong>Bed shear stress and sediment movement</strong>. OpenFOAM works out the shear stress the water puts on the walls and EasyFOAM colours the bed with it, seen from above. The text gives the largest stress and the stress at which 8 mm gravel starts to move (Shields). Choose <strong>sedimentMobility</strong> under <strong>Quantity</strong>: above 1, the bed would move.</p>
+<ol class="marks"><li><strong>Bed material d50</strong>: <code>8</code> mm.</li><li>Press <strong>Bed shear stress and sediment movement</strong>.</li><li>The largest shear stress, and when the gravel moves.</li></ol>
+<figure><a href="img/flood/10.webp" class="zoom"><img src="img/flood/10.webp" alt="A flood through a bend, step 10: Where the bed would move" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+  <nav class="pager"><a class="prev" href="channel.html"><span>Previous</span>Build a channel with a bend</a><a class="next" href="reach.html"><span>Next</span>A river reach from a survey</a></nav>
+</main>
+</div>
+<div class="lightbox" hidden><img alt=""></div>
+<footer class="foot">
+  <p>EasyFOAM is free software (GPL-3.0-or-later). It is an independent project: it is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com and owner of the OPENFOAM® and OpenCFD® trade marks, and it is not affiliated with any other vendor of simulation software.</p>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>

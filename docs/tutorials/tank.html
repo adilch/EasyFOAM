@@ -33,7 +33,7 @@
   </ol>
 </aside>
 <main class="tutorial">
-  <p class="crumb">Tutorial 13 of 15</p>
+  <p class="crumb">Tutorial 14 of 17</p>
   <h1>Contact tank: water age and a tracer test</h1>
   <p class="lead">How long does the water stay in a baffled chlorine contact tank? Map its age, follow a tracer through it and read off T10 and the baffling factor.</p>
   <div class="chips"><span class="chip">about 25 min</span><span class="chip level-intermediate">Intermediate</span><span class="chip topic">Water treatment</span><span class="chip topic">Tracers</span><span class="chip topic">Residence time</span></div>
@@ -50,7 +50,7 @@
 <h2><span class="step-number">2</span>Name the project</h2>
 <p>The project is an ordinary folder that EasyFOAM creates for you.</p>
 <ol class="marks"><li>Type a name, for example <code>tank</code>.</li><li>Click <strong>Create project</strong>.</li></ol>
-<figure><a href="img/tank/02.webp" class="zoom"><img src="img/tank/02.webp" alt="Contact tank: water age and a tracer test, step 2: Name the project" loading="lazy" width="650" height="225"></a></figure>
+<figure><a href="img/tank/02.webp" class="zoom"><img src="img/tank/02.webp" alt="Contact tank: water age and a tracer test, step 2: Name the project" loading="lazy" width="650" height="248"></a></figure>
 </section>
 <section class="step" id="step-3">
 <h2><span class="step-number">3</span>Nine baffles</h2>
@@ -78,8 +78,8 @@
 </section>
 <section class="step" id="step-7">
 <h2><span class="step-number">7</span>The age of the water</h2>
-<p>When the run is done, show <strong>age</strong> in the <strong>Results</strong> step, seen from above. Young water (blue) runs round the ends of the baffles; the corners behind them hold older water. The age of the water leaving is V/Q, 7680 s, as it must be for a steady flow.</p>
-<ol class="marks"><li><strong>Quantity</strong>: <code>age</code>, in seconds.</li></ol>
+<p>When the run is done, show <strong>age</strong> in the <strong>Results</strong> step on a flat slice, seen from above. The water ages as it winds from one compartment to the next: young (blue) at the inlet, over two hours old (red) at the outlet, with slightly older water in the corners behind the baffles. The mean age of the water leaving is V/Q, 7680 s, as it must be for a steady flow.</p>
+<ol class="marks"><li><strong>Quantity</strong>: <code>age</code>, in seconds.</li><li><strong>Slice plane</strong>: <em>Normal to z</em>, a plan of the tank.</li></ol>
 <figure><a href="img/tank/07.webp" class="zoom"><img src="img/tank/07.webp" alt="Contact tank: water age and a tracer test, step 7: The age of the water" loading="lazy" width="1900" height="1125"></a></figure>
 </section>
 <section class="step" id="step-8">
@@ -95,7 +95,7 @@
 <figure><a href="img/tank/09.webp" class="zoom"><img src="img/tank/09.webp" alt="Contact tank: water age and a tracer test, step 9: T10 and the baffling factor" loading="lazy" width="1900" height="1125"></a></figure>
 <aside class="tip"><p>Delete the baffles in the Geometry step, rerun the flow and the tracer test, and compare.</p></aside>
 </section>
-  <nav class="pager"><a class="prev" href="jump.html"><span>Previous</span>Hydraulic jump: long section and loads</a><a class="next" href="channel.html"><span>Next</span>Build a channel with a bend</a></nav>
+  <nav class="pager"><a class="prev" href="rating.html"><span>Previous</span>Rating curve of a weir</a><a class="next" href="channel.html"><span>Next</span>Build a channel with a bend</a></nav>
 </main>
 </div>
 <div class="lightbox" hidden><img alt=""></div>

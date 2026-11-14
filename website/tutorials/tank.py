@@ -6,8 +6,9 @@ from website.tutorials.common import MESH_BUTTON, RUN_BUTTON, create, from_examp
 
 def show_age(d):
     d.go("Results")
-    d.results("age")
-    d.view("+z")
+    d.results("age", "slice")
+    d.set(d.w.results_panel.normal, "z")  # a plan: the slice lies flat, through the middle of the depth
+    d.view("-z")  # from above
     d.flat(True)
 
 
@@ -98,14 +99,18 @@ tracers are solved along with it.
         Step(
             title="The age of the water",
             text="""
-When the run is done, show **age** in the **Results** step, seen from above. Young water (blue) runs
-round the ends of the baffles; the corners behind them hold older water. The age of the water
-leaving is V/Q, 7680 s, as it must be for a steady flow.
+When the run is done, show **age** in the **Results** step on a flat slice, seen from above. The
+water ages as it winds from one compartment to the next: young (blue) at the inlet, over two hours
+old (red) at the outlet, with slightly older water in the corners behind the baffles. The mean age
+of the water leaving is V/Q, 7680 s, as it must be for a steady flow.
 """,
             screen="Results",
             before=lambda d: (d.run(), show_age(d)),
             cover=True,
-            marks=[Mark("w.results_panel.field", "**Quantity**: `age`, in seconds.")],
+            marks=[
+                Mark("w.results_panel.field", "**Quantity**: `age`, in seconds."),
+                Mark("w.results_panel.normal", "**Slice plane**: *Normal to z*, a plan of the tank."),
+            ],
         ),
         Step(
             title="The tracer test",
