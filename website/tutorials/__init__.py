@@ -1,6 +1,7 @@
 """The tutorials, in the order they are shown and best read."""
 
 from website.tutorials import (
+    basin,
     cavity,
     channel,
     dambreak,
@@ -10,6 +11,7 @@ from website.tutorials import (
     gate,
     getting_started,
     jump,
+    ogee,
     pipe,
     rating,
     reach,
@@ -33,6 +35,8 @@ ALL = [
     floating.TUTORIAL,
     spillway.TUTORIAL,
     jump.TUTORIAL,
+    ogee.TUTORIAL,
+    basin.TUTORIAL,
     rating.TUTORIAL,
     tank.TUTORIAL,
     channel.TUTORIAL,

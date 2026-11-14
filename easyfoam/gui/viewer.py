@@ -49,7 +49,10 @@ def shape_surface(shape: Shape, case_dir: Path):
         except ValueError:
             return None  # for example an outline with two corners so far
         faces = np.column_stack([np.full(len(triangles), 3), np.arange(3 * len(triangles)).reshape(-1, 3)])
-        return pv.PolyData(triangles.reshape(-1, 3), faces.ravel()).clean()
+        surface = pv.PolyData(triangles.reshape(-1, 3), faces.ravel()).clean()
+        if shape.kind == "structure" and shape.structure is not None:
+            return inside_channel(surface, shape.structure)
+        return surface
     if shape.kind == "stl":
         path = Path(case_dir) / "constant" / "triSurface" / shape.file
         return pv.read(str(path)) if path.is_file() else None
@@ -63,6 +66,29 @@ def shape_surface(shape: Shape, case_dir: Path):
         )
     (x0, y0, z0), (x1, y1, z1) = shape.min, shape.max
     return pv.Box(bounds=(x0, x1, y0, y1, z0, z1))
+
+
+def inside_channel(surface, structure):
+    """The part of a structure between its channel's walls and above its bed, closed where it is cut.
+
+    The structure reaches past the walls and below the bed only so that the mesher cuts it cleanly.
+    """
+    from vtkmodules.vtkCommonDataModel import vtkPlane, vtkPlaneCollection
+    from vtkmodules.vtkFiltersGeneral import vtkClipClosedSurface
+
+    planes = vtkPlaneCollection()
+    for normal, origin in (((0, 1, 0), (0, structure.y0, 0)), ((0, -1, 0), (0, structure.y0 + structure.width, 0)),
+                           ((0, 0, 1), (0, 0, structure.bed))):  # fmt: skip
+        plane = vtkPlane()  # the side its normal points to is kept
+        plane.SetNormal(*normal)
+        plane.SetOrigin(*origin)
+        planes.AddItem(plane)
+    clipper = vtkClipClosedSurface()  # all planes in one pass: clipping again would cut into the caps just made
+    clipper.SetClippingPlanes(planes)
+    clipper.SetInputData(surface)
+    clipper.Update()
+    cut = pv.wrap(clipper.GetOutput())
+    return cut if cut.n_cells else surface
 
 
 def _face_centres(base) -> dict[str, list[float]]:

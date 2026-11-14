@@ -113,7 +113,6 @@ the sides let the water slide.
 """,
             screen="Geometry",
             before=ground_in,
-            cover=True,
             marks=[Mark("item(w.geometry_panel.shape_list, 'terrain')", "The shape **terrain**: the ground, closed into a solid.")],
         ),
         Step(
@@ -150,6 +149,7 @@ faster on the outside of the bends.
 """,
             screen="Results",
             before=water_surface,
+            cover=True,  # the river itself; the bare ground made an empty picture
             marks=[Mark("w.results_panel.mode", "**Show**: *Water surface*."), Mark("w.results_panel.field", "**Quantity**: `U`.")],
         ),
         Step(

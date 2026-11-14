@@ -140,6 +140,28 @@ class Driver:
         self.w.apply_terrain(ground, **settings)
         self.settle(0.8)
 
+    def open_structure(self, structure) -> None:
+        """Open the structure designer (without blocking), filled in as given, so that it can be pictured."""
+        from easyfoam.gui.structure_dialog import StructureDialog
+
+        base = self.w.project.mesh.base
+        self.dialog = StructureDialog(structure, (list(base.min), list(base.max)), self.w)
+        self.dialog.setModal(False)
+        self.dialog.show()
+        self.settle(0.6)
+
+    def use_structure(self) -> None:
+        """Press "Use this structure": a new structure is added, a selected one is changed."""
+        structure = self.dialog.structure()
+        self.close_dialog()
+        panel = self.w.geometry_panel
+        selected = panel.selected()
+        if selected is not None and selected.kind == "structure":
+            panel.set_structure(structure)
+        else:
+            panel.add_structure(structure)
+        self.settle(0.6)
+
     def open_series(self, attribute: str, series) -> None:
         """Open the time-series table of the selected boundary (without blocking), filled in, to be pictured.
 

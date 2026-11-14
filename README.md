@@ -42,6 +42,7 @@ Good free tools already exist: [BARAM](https://github.com/nextfoam/baram)
 | Free surface | Water and air with a free surface (interFoam): gravity, surface tension, water placed as boxes or filled to a level, time step that follows the water surface; a sharper-interface variant (interIsoFoam); waves (Stokes 1st, 2nd and 5th order, cnoidal, solitary) with a wave maker and an absorbing outlet; contact angle; mesh refinement that follows the water surface; cavitation index; discharge and water-depth monitors |
 | Hydraulic results | Long section along a straight or curved centreline: water level, bed, energy line, Froude number, specific energy, discharge; hydraulic jumps compared with Bélanger and control sections with critical depth; pressure along a structure and the force and overturning moment on it; bed shear stress and sediment mobility; a 1D Manning profile to compare; rating-curve sweeps; tables saved as CSV |
 | Channels and terrain | Build a channel from its cross-section (rectangular, trapezoidal, compound with floodplains, circular culvert), bed slope and a centreline of straight pieces and bends, with a mesh fitted to it; or bring in the ground of a river reach from XYZ points, an ESRI ASCII grid, a GeoTIFF or a LandXML surface |
+| Hydraulic structures | Made from their design values and drawn from the side and from above as they are typed: an ogee crest shaped by the WES standard for its design head, with its design discharge; a stepped spillway, with its flow regime (nappe, transition or skimming); a labyrinth weir; USBR stilling basins Types II, III and IV sized from the entering depth and Froude number; a box or pipe culvert through an embankment, its barrels on or buried in the bed; a vertical-slot fishway |
 | Contact tanks | Several tracers with inlet concentrations, first-order decay (chlorine) and the age of the water; a tracer test (step or pulse) giving T10, mean residence time, baffling factor and Morrill index, and the residual of a decaying substance at the outlet |
 | Moving shapes | A solid shape can move to a new position over a set time (a gate that opens), swing back and forth, or float: a floating body is moved by the water and its own weight (6DoF), with its mass and inertia worked out from its shape and density; live plot of position and tilt |
 | Physics | Incompressible flow, steady (simpleFoam) and transient (pimpleFoam); laminar, k-epsilon (standard, realizable, RNG), k-omega (standard, SST), Spalart-Allmaras, k-kl-omega transition; wall functions or resolved boundary layer; non-Newtonian fluids; tracers; velocity limiter; potential-flow start; small fluid list |
@@ -55,7 +56,7 @@ rotating machinery, STEP import, …) is listed with its status in
 
 ## Tutorials
 
-Seventeen step-by-step tutorials, from installing to a river reach read from a survey, are in [docs/](docs/index.html) as a
+Nineteen step-by-step tutorials, from installing to a river reach read from a survey, are in [docs/](docs/index.html) as a
 small website: open `docs/index.html` in a browser. Every click is numbered in a picture of the
 real program and every value is given.
 
@@ -67,6 +68,7 @@ real program and every value is given.
 | Waves in a flume | Lifting sluice gate |
 | Floating box | Spillway from your own geometry (STL) |
 | Draw your own weir (sketch pad and mouse handles) | Hydraulic jump: long section and loads |
+| Ogee spillway crest from its design head | Stilling basin from the flow entering it (USBR Type III) |
 | Rating curve of a weir | Contact tank: water age and a tracer test |
 | Build a channel with a bend | A flood through a bend (hydrograph, rising tailwater, bed shear) |
 | A river reach from a survey | |
@@ -126,7 +128,8 @@ Desktop application:
 
 Then *File > New from example* (air flow past a sphere, laminar flow in a pipe,
 the lid-driven cavity, flow over a weir, a dam break, waves in a flume, a lifting
-sluice gate, a floating box, a hydraulic jump or a chlorine contact tank), press **Generate mesh** (F5) and **Run** (F6). The steps on the left go in order: Geometry, Mesh,
+sluice gate, a floating box, a hydraulic jump, a chlorine contact tank, an ogee spillway crest or a
+stilling basin), press **Generate mesh** (F5) and **Run** (F6). The steps on the left go in order: Geometry, Mesh,
 Physics, Boundaries, Run, Results.
 
 Command line, same operations:
@@ -143,6 +146,8 @@ easyfoam pressure mycase gate                              # pressure along a st
 easyfoam loads mycase gate                                 # force and overturning moment on it
 easyfoam channel river --piece straight:20 --piece bend:15:60 --slope 0.001   # build a channel
 easyfoam terrain reach dem.tif --angle 30 --cell 1 --water 99.3   # flow over a surveyed valley
+easyfoam structure mycase ogee --station 2 --set design_head=0.12   # a spillway crest from its design head
+easyfoam structure mycase basin --set basin_type=4 --set froude=3.5   # a USBR stilling basin
 ```
 
 ## Checked against theory
@@ -214,6 +219,29 @@ These are part of the test suite too, with real OpenFOAM runs:
   residence times within 1 %.
 - A channel built with a 60° bend starts with exactly the water its cross-section holds and keeps its
   depth round the bend; water runs down a surveyed valley read from an ASCII grid.
+
+### Hydraulic structures
+
+![The six structures](docs/images/Structures.png)
+
+The structures are made from published design rules (see [docs/design.md](docs/design.md)) and checked with real runs:
+
+- **Ogee crest.** The example's crest, made from a design head of 0.1 m, is given the design discharge
+  2.18 W Hd^1.5. It runs at a head of 0.0999 m, an energy head of 0.1009 m (C = 2.15 against 2.18),
+  passes critical depth on the crest (0.0806 m against 0.0804 m), and the pressure along the crest beyond
+  its apex stays within 4 mm of atmospheric, as the WES shape is meant to at its design head.
+- **USBR Type III basin.** A jet 4 cm deep enters at a Froude number of 6, with the tailwater held at the
+  sequent depth y2 = 0.32 m. The jump starts at the chute blocks and the water is up to 0.9 y2 by the end
+  sill, 2.72 y2 into the basin (designed for 2.7 y2; a free jump needs about 6 y2). Below the basin the
+  water is calm (Froude number 0.27) at 0.315 m, and the energy lost, 0.435 m, is what Bélanger gives for
+  the jump (0.429 m).
+- **Vertical-slot fishway.** Three pools with 5 cm slots and 3 cm drops pass 5.75 litres a second. The
+  water steps down from pool to pool by 3 to 4 cm, and the fastest water in each slot is 1.19 to 1.24
+  times √(2 g Δh), Δh being the fall across that slot. Rajaratnam's laboratory fishways give about 1. A
+  first version with plain baffles and the slots in line let each jet shoot straight into the next
+  slot (1.2 to 1.6 times); the slots now turn the jet 30° into the pool.
+- **Meshing.** Each of the six structures, and pipe culverts laid on or buried in the bed, is cut out of the
+  mesh by snappyHexMesh with no mesh-quality errors.
 
 ## How a case is laid out
 

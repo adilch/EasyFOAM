@@ -14,7 +14,7 @@ import numpy as np
 
 from easyfoam.model import Shape
 
-DRAWN = ("cone", "wedge", "profile")
+DRAWN = ("cone", "wedge", "profile", "structure")
 #: which way the top of a wedge rises
 RISES = ("+x", "-x", "+y", "-y")
 #: plane of a sketch -> (axis of the first coordinate, of the second, of the extrusion)
@@ -193,6 +193,14 @@ def problem(shape: Shape) -> str | None:
             return "it needs a radius above zero"
         if shape.kind == "cylinder" and list(shape.point1) == list(shape.point2):
             return "it has no length: its two ends are in the same place"
+    elif shape.kind == "structure":
+        if shape.structure is None:
+            return "it has no design values"
+        from easyfoam import structures  # it builds on the surfaces made here
+
+        wrong = structures.problems(shape.structure)
+        if wrong:
+            return wrong[0]
     return None
 
 
@@ -207,6 +215,10 @@ def triangulate(shape: Shape) -> np.ndarray:
         return _wedge(shape)
     if shape.kind == "profile":
         return _extrude(shape.points, shape.plane, shape.extent)
+    if shape.kind == "structure":
+        from easyfoam import structures
+
+        return structures.triangles(shape.structure)
     raise ValueError(f"'{shape.name}' is not a drawn shape")
 
 

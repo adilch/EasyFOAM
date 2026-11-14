@@ -34,11 +34,12 @@ from PySide6.QtWidgets import (
 )
 
 from easyfoam import geometry
+from easyfoam import structures as sm
 from easyfoam.foam.boundaryfile import Patch
 from easyfoam.gui.icons import icon
 from easyfoam.gui.series import describe as describe_series
 from easyfoam.gui.style import set_primary
-from easyfoam.gui.widgets import FloatEdit, VectorEdit
+from easyfoam.gui.widgets import FRACTION, NOT_NEGATIVE, POSITIVE, FloatEdit, VectorEdit, between
 from easyfoam.model import (
     CONSTRAINT_TYPES,
     FACES,
@@ -104,7 +105,7 @@ DRAWABLE = {
     "profile": ("Outline, drawn by hand", "Draw the cross-section of a weir, spillway or duct; it is extruded into a solid."),
 }
 SHAPE_NAMES = {"stl": "imported surface", "profile": "outline"}
-RISE_LABELS = {"+x": "+x (higher at the far x end)", "-x": "−x", "+y": "+y", "-y": "−y"}
+RISE_LABELS ={"+x": "+x (higher at the far x end)", "-x": "−x", "+y": "+y", "-y": "−y"}
 PLANE_LABELS = {
     "xz": "the x–z plane (a side view), extruded along y",
     "xy": "the x–y plane (a plan view), extruded along z",
@@ -146,6 +147,19 @@ FREEDOM_LABELS = {
     "plane": "In the x–z plane (slide, rise, pitch)",
     "free": "All six directions",
 }
+
+
+def shape_icon(shape: Shape) -> str:
+    """Name of the icon that stands for a shape in the list."""
+    if shape.kind == "structure" and shape.structure is not None:
+        return f"structure-{shape.structure.kind}"
+    return SHAPE_ICONS.get(shape.kind, "shapes")
+
+
+def shape_kind_name(shape: Shape) -> str:
+    if shape.kind == "structure" and shape.structure is not None and shape.structure.kind in sm.KINDS:
+        return sm.kind_name(shape.structure.kind)
+    return SHAPE_NAMES.get(shape.kind, shape.kind)
 
 
 def _hint(text: str) -> QLabel:
@@ -210,7 +224,8 @@ class GeometryPanel(Panel):
 
         self.empty_hint = _hint(
             "No shapes yet. Draw one (a box, a sphere, a cylinder, a cone, a wedge or an outline of your own), "
-            "or import a file from a CAD program. A case without shapes is fine too: the flow then fills the base mesh."
+            "make a hydraulic structure from its design values, or import a file from a CAD program. A case without "
+            "shapes is fine too: the flow then fills the base mesh."
         )
         self.import_button = import_button = QPushButton(icon("import"), " Import")
         import_button.clicked.connect(self._import_stl)
@@ -244,25 +259,38 @@ class GeometryPanel(Panel):
             "a GeoTIFF or a LandXML surface. The water flows over it."
         )
         self.terrain_button.clicked.connect(self.terrain_requested)
+        self.structure_button = QPushButton(icon("structure-ogee"), " Structure")
+        self.structure_button.setToolTip(
+            "Make a hydraulic structure from its design values: an ogee crest, a stepped spillway, a labyrinth "
+            "weir, a USBR stilling basin, a culvert or a vertical-slot fishway."
+        )
+        self.structure_menu = QMenu(self.structure_button)
+        self.structure_menu.setToolTipsVisible(True)
+        for kind, (title, purpose) in sm.KINDS.items():
+            action = self.structure_menu.addAction(icon(f"structure-{kind}"), title, lambda k=kind: self.new_structure(k))
+            action.setData(kind)
+            action.setToolTip(purpose)
+        self.structure_button.setMenu(self.structure_menu)
         self.remove_channel_button = QPushButton(icon("trash-2"), " Remove channel")
         self.remove_channel_button.clicked.connect(self.remove_channel)
         self.channel_summary = _hint("")
         channel_row = QHBoxLayout()
         channel_row.addWidget(self.channel_button)
         channel_row.addWidget(self.terrain_button)
+        channel_row.addWidget(self.structure_button)
         channel_row.addWidget(self.remove_channel_button)
         channel_row.addStretch(1)
 
         self.role = QComboBox()
         self.role.addItem("Solid surface (flow goes around it)", "wall")
         self.role.addItem("Refinement region (finer mesh inside)", "refinement")
-        self.centre = VectorEdit()
-        self.radius = FloatEdit(0.5)
-        self.box_min = VectorEdit()
-        self.box_max = VectorEdit()
-        self.point1 = VectorEdit()
-        self.point2 = VectorEdit()
-        self.radius2 = FloatEdit(0.25)
+        self.centre = VectorEdit(unit="m")
+        self.radius = FloatEdit(0.5, unit="m", check=POSITIVE)
+        self.box_min = VectorEdit(unit="m")
+        self.box_max = VectorEdit(unit="m")
+        self.point1 = VectorEdit(unit="m")
+        self.point2 = VectorEdit(unit="m")
+        self.radius2 = FloatEdit(0.25, unit="m", check=NOT_NEGATIVE)
         self.radius2.setToolTip(
             "Radius at the end of the axis. 0 makes a pointed cone; the same as the first radius, a cylinder."
         )
@@ -274,8 +302,8 @@ class GeometryPanel(Panel):
         for key, label in PLANE_LABELS.items():
             self.plane.addItem(label, key)
         self.plane.setToolTip("The plane the outline is drawn in. The solid is made by pushing it through at right angles.")
-        self.extent_from = FloatEdit(0.0)
-        self.extent_to = FloatEdit(1.0)
+        self.extent_from = FloatEdit(0.0, unit="m")
+        self.extent_to = FloatEdit(1.0, unit="m")
         self.extent_row = QWidget()
         extent_layout = QHBoxLayout(self.extent_row)
         extent_layout.setContentsMargins(0, 0, 0, 0)
@@ -289,6 +317,10 @@ class GeometryPanel(Panel):
         self.outline_button = QPushButton(icon("shape-outline"), " Draw the outline…")
         self.outline_button.clicked.connect(self.edit_outline)
         self.outline_summary = _hint("")
+        self.design_button = QPushButton(icon("pencil"), " Change the design…")
+        self.design_button.setToolTip("Change where the structure stands and its design values, and see it drawn.")
+        self.design_button.clicked.connect(self.edit_structure)
+        self.design_summary = _hint("")
         self.handles = QCheckBox("Move and resize with the mouse in the 3D view")
         self.handles.setChecked(True)
         self.handles.setToolTip(
@@ -299,7 +331,7 @@ class GeometryPanel(Panel):
         self.level_max = _spin(0, 10)
         self.layers = _spin(0, 20)
         self.region_level = _spin(0, 10)
-        self.near_distance = FloatEdit(0.0)
+        self.near_distance = FloatEdit(0.0, check=NOT_NEGATIVE)
         self.near_level = _spin(0, 10)
         self.regions = QTableWidget(0, 2)
         self.regions.setHorizontalHeaderLabels(["STL region", "Becomes"])
@@ -315,12 +347,12 @@ class GeometryPanel(Panel):
         self.motion_kind = QComboBox()
         for key, label in MOTION_LABELS.items():
             self.motion_kind.addItem(label, key)
-        self.motion_displacement = VectorEdit((0, 0, 0.1))
-        self.motion_start = FloatEdit(0.0)
-        self.motion_duration = FloatEdit(1.0)
-        self.motion_amplitude = VectorEdit((0, 0, 0.05))
-        self.motion_period = FloatEdit(2.0)
-        self.motion_density = FloatEdit(500.0)
+        self.motion_displacement = VectorEdit((0, 0, 0.1), unit="m")
+        self.motion_start = FloatEdit(0.0, check=NOT_NEGATIVE)
+        self.motion_duration = FloatEdit(1.0, check=POSITIVE)
+        self.motion_amplitude = VectorEdit((0, 0, 0.05), unit="m")
+        self.motion_period = FloatEdit(2.0, check=POSITIVE)
+        self.motion_density = FloatEdit(500.0, check=POSITIVE)
         self.motion_freedom = QComboBox()
         for key, label in FREEDOM_LABELS.items():
             self.motion_freedom.addItem(label, key)
@@ -357,6 +389,8 @@ class GeometryPanel(Panel):
         self.form.addRow("Extruded from", self.extent_row)
         self.form.addRow(self.outline_button)
         self.form.addRow(self.outline_summary)
+        self.form.addRow(self.design_summary)
+        self.form.addRow(self.design_button)
         self.form.addRow(self.handles)
         self.form.addRow("Surface refinement, min", self.level_min)
         self.form.addRow("Surface refinement, max", self.level_max)
@@ -457,9 +491,7 @@ class GeometryPanel(Panel):
         with self.loading():
             self.shape_list.clear()
             for shape in self.project.shapes:
-                self.shape_list.addItem(
-                    QListWidgetItem(icon(SHAPE_ICONS.get(shape.kind, "shapes")), self._list_text(shape))
-                )
+                self.shape_list.addItem(QListWidgetItem(icon(shape_icon(shape)), self._list_text(shape)))
             if self.project.shapes:
                 self.shape_list.setCurrentRow(max(0, min(select, len(self.project.shapes) - 1)))
         self.empty_hint.setVisible(not self.project.shapes and self.project.channel is None)
@@ -467,7 +499,7 @@ class GeometryPanel(Panel):
 
     @staticmethod
     def _list_text(shape: Shape) -> str:
-        kind = SHAPE_NAMES.get(shape.kind, shape.kind)
+        kind = shape_kind_name(shape)
         tag = MOTION_TAGS.get(shape.motion.kind) if shape.role == "wall" else None
         return f"{shape.name}   ({kind}, {tag})" if tag else f"{shape.name}   ({kind})"
 
@@ -556,7 +588,9 @@ class GeometryPanel(Panel):
             self.motion_density: moves == "floating",
             self.motion_freedom: moves == "floating",
             self.motion_mass: moves == "floating",
-            self.role: shape.kind != "stl",
+            self.role: shape.kind not in ("stl", "structure"),
+            self.design_summary: shape.kind == "structure",
+            self.design_button: shape.kind == "structure",
             self.centre: shape.kind == "sphere",
             self.radius: shape.kind in ("sphere", "cylinder", "cone"),
             self.box_min: shape.kind in ("box", "wedge"),
@@ -581,6 +615,7 @@ class GeometryPanel(Panel):
         for widget, show in visible.items():
             self.form.setRowVisible(widget, show)
         self._show_outline(shape)
+        self._show_design(shape)
 
     def _set(self, attribute: str, value, refresh: bool = False) -> None:
         shape = self.selected()
@@ -629,6 +664,73 @@ class GeometryPanel(Panel):
         dialog = SketchDialog(shape.points, shape.plane, self.outline_reference(shape), self)
         if dialog.exec() == SketchDialog.DialogCode.Accepted:
             self.set_outline(dialog.values())
+
+    # -- hydraulic structures
+    def _show_design(self, shape: Shape) -> None:
+        if shape.kind != "structure":
+            return
+        if shape.structure is None:
+            self.design_summary.setText("This structure has no design values.")
+            return
+        wrong = geometry.shape_problem(shape)
+        if wrong:
+            self.design_summary.setText(f"Not usable yet: {wrong}.")
+            return
+        st = shape.structure
+        lines = sm.build(st).info
+        self.design_summary.setText(
+            f"{sm.KINDS[st.kind][0]} starting at x = {st.station:g} m on a bed at {st.bed:g} m, across a channel "
+            f"{st.width:g} m wide. " + (lines[0] if lines else "")
+        )
+
+    def _box(self):
+        base = self.project.mesh.base
+        return list(base.min), list(base.max)
+
+    def new_structure(self, kind: str) -> None:
+        """Design a new structure of the given kind; it is added when the dialog is accepted."""
+        from easyfoam.gui.structure_dialog import StructureDialog
+
+        if self.project is None:
+            return
+        dialog = StructureDialog(sm.place(kind, *self._box()), self._box(), self)
+        if dialog.exec() == StructureDialog.DialogCode.Accepted:
+            self.add_structure(dialog.structure())
+
+    def add_structure(self, structure) -> None:
+        """Add a structure as a new shape; snappyHexMesh is switched on to cut it out of the mesh."""
+        if self.project is None:
+            return
+        shape = Shape(self._unique_name(structure.kind), kind="structure", structure=structure, level_min=1,
+                      level_max=2)  # fmt: skip
+
+        def add():
+            self.project.shapes.append(shape)
+            self.project.mesh.snappy = True
+
+        self.apply(add)
+        self._refill(select=len(self.project.shapes) - 1)
+
+    def edit_structure(self) -> None:
+        from easyfoam.gui.structure_dialog import StructureDialog
+
+        shape = self.selected()
+        if shape is None or shape.kind != "structure" or shape.structure is None:
+            return
+        dialog = StructureDialog(shape.structure, self._box(), self)
+        if dialog.exec() == StructureDialog.DialogCode.Accepted:
+            self.set_structure(dialog.structure())
+
+    def set_structure(self, structure) -> None:
+        """Give the selected structure a new place or new design values."""
+        shape = self.selected()
+        if shape is None or shape.kind != "structure":
+            return
+        self.apply(lambda: setattr(shape, "structure", structure))
+        row = self.shape_list.currentRow()
+        self.shape_list.item(row).setIcon(icon(shape_icon(shape)))
+        self.shape_list.item(row).setText(self._list_text(shape))
+        self._show_design(shape)
 
     # -- changes made with the mouse in the 3D view
     def _apply_from_view(self, edit) -> None:
@@ -794,8 +896,8 @@ class MeshPanel(Panel):
         super().__init__(parent)
         self.case_dir: Path | None = None
 
-        self.base_min = VectorEdit()
-        self.base_max = VectorEdit()
+        self.base_min = VectorEdit(unit="m")
+        self.base_max = VectorEdit(unit="m")
         self.cells = [_spin(1, 5000) for _ in range(3)]
         cells_row = QHBoxLayout()
         for axis, spin in zip("xyz", self.cells):
@@ -844,7 +946,7 @@ class MeshPanel(Panel):
         self.snap = QCheckBox("Snap cells onto the surfaces")
         self.add_layers = QCheckBox("Add boundary layers where shapes ask for them")
         self.auto_location = QCheckBox("Pick the point inside the fluid automatically")
-        self.location = VectorEdit()
+        self.location = VectorEdit(unit="m")
         self.snappy.setToolTip(
             "Refines the base mesh near the shapes and cuts it to their surfaces. "
             "Switch off to use the plain base mesh."
@@ -1007,11 +1109,11 @@ class PhysicsPanel(Panel):
         for name in MATERIALS:
             self.material.addItem(name.capitalize(), name)
         self.material.addItem("Custom", "custom")
-        self.nu = FloatEdit()
-        self.rho = FloatEdit()
+        self.nu = FloatEdit(check=POSITIVE)
+        self.rho = FloatEdit(check=POSITIVE)
         self.velocity = VectorEdit()
-        self.intensity = FloatEdit()
-        self.length = FloatEdit()
+        self.intensity = FloatEdit(check=FRACTION)
+        self.length = FloatEdit(check=POSITIVE)
         self.nu.setToolTip(
             "How easily the fluid flows: kinematic viscosity = dynamic viscosity / density. "
             "Air is about 1.5e-5 m²/s, water 1e-6 m²/s."
@@ -1032,7 +1134,7 @@ class PhysicsPanel(Panel):
         self.wall_treatment.setToolTip(
             "Wall functions model the thin layer next to a wall; resolving it needs very thin cells there (see y+ in Results)."
         )
-        self.max_velocity = FloatEdit()
+        self.max_velocity = FloatEdit(check=NOT_NEGATIVE)
         self.max_velocity.setToolTip(
             "Caps the velocity everywhere. A safety net against runaway speeds, e.g. in the air above a water surface. 0 = off."
         )
@@ -1097,9 +1199,9 @@ class PhysicsPanel(Panel):
 
         self.gravity = VectorEdit()
         self.gravity.setToolTip("Gravity vector. On Earth with z pointing up: (0, 0, -9.81).")
-        self.air_nu = FloatEdit()
-        self.air_rho = FloatEdit()
-        self.surface_tension = FloatEdit()
+        self.air_nu = FloatEdit(check=POSITIVE)
+        self.air_rho = FloatEdit(check=POSITIVE)
+        self.surface_tension = FloatEdit(check=NOT_NEGATIVE)
         self.surface_tension.setToolTip("Surface tension between water and air: 0.07 N/m at room temperature.")
         self.water_table = QTableWidget(0, 6)
         self.water_table.setHorizontalHeaderLabels(["x min", "y min", "z min", "x max", "y max", "z max"])
@@ -1424,25 +1526,25 @@ class BoundaryPanel(Panel):
         self.velocity = VectorEdit()
         self.pressure = FloatEdit()
         self.hint = _hint("")
-        self.flow_rate = FloatEdit()
+        self.flow_rate = FloatEdit(check=NOT_NEGATIVE)
         self.flow_rate.setToolTip("Volume flow rate through this boundary in cubic metres per second.")
-        self.water_fraction = FloatEdit(1.0)
+        self.water_fraction = FloatEdit(1.0, check=FRACTION)
         self.water_fraction.setToolTip("Free-surface flow: 1 if water enters here, 0 if air enters.")
         self.level = FloatEdit()
         self.level.setToolTip("Height of the tailwater surface, measured upwards (against gravity) in the mesh's coordinates.")
-        self.wave_height = FloatEdit(0.05)
+        self.wave_height = FloatEdit(0.05, check=POSITIVE)
         self.wave_height.setToolTip("Wave height from trough to crest.")
-        self.wave_period = FloatEdit(2.0)
+        self.wave_period = FloatEdit(2.0, check=POSITIVE)
         self.wave_period.setToolTip("Time between two wave crests.")
         self.wave_model = QComboBox()
         for key, label in WAVE_MODELS.items():
             self.wave_model.addItem(label, key)
-        self.contact_angle = FloatEdit(90.0)
+        self.contact_angle = FloatEdit(90.0, check=between(0, 180))
         self.contact_angle.setToolTip(
             "Angle at which the water surface meets this wall, in degrees. 90 is neutral; "
             "below 90 the water wets the wall, above 90 it is repelled."
         )
-        self.tracer_value = FloatEdit()
+        self.tracer_value = FloatEdit(check=NOT_NEGATIVE)
         self.tracer_value.setToolTip(
             "Concentration of the tracers in the water entering here (for example 1, or 2 mg/L of chlorine)."
         )
@@ -1470,12 +1572,12 @@ class BoundaryPanel(Panel):
             "How rough the wall is. Give Manning's n as for a 1D model, or the equivalent sand-grain roughness "
             "height ks. Needs a turbulence model with wall functions."
         )
-        self.ks_mm = FloatEdit(0.0)
+        self.ks_mm = FloatEdit(0.0, check=NOT_NEGATIVE)
         self.ks_mm.setToolTip(
             "Equivalent sand-grain roughness height in millimetres: about 0.3–3 for concrete, 2–3 times the "
             "d90 of a gravel bed. Keep it below the height of the first cell at the wall."
         )
-        self.manning = FloatEdit(0.013)
+        self.manning = FloatEdit(0.013, check=POSITIVE)
         self.manning.setToolTip(
             "Manning's n in s/m^(1/3): 0.012–0.015 finished concrete, 0.025–0.035 earth and gravel channels, "
             "0.035–0.05 natural rivers with stones and weeds."
@@ -1732,20 +1834,20 @@ class RunPanel(Panel):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.end_label = QLabel()
-        self.end_time = FloatEdit()
-        self.delta_t = FloatEdit()
+        self.end_time = FloatEdit(check=POSITIVE)
+        self.delta_t = FloatEdit(check=POSITIVE)
         self.write_label = QLabel()
-        self.write_interval = FloatEdit()
+        self.write_interval = FloatEdit(check=POSITIVE)
         self.adjust = QCheckBox("Keep the Courant number below")
         self.adjust.setToolTip(
             "Transient runs: the time step is adapted so the flow crosses at most this many cells per step. "
             "1 or less is safe; larger is faster but less accurate."
         )
-        self.max_courant = FloatEdit()
+        self.max_courant = FloatEdit(check=POSITIVE)
         self.processors = _spin(1, max(1, os.cpu_count() or 1))
         self.purge = _spin(0, 1000)
         self.purge.setSpecialValueText("keep all")
-        self.residual_target = FloatEdit()
+        self.residual_target = FloatEdit(check=NOT_NEGATIVE)
         self.case_dir: Path | None = None
         self.residual_target.setToolTip(
             "A steady run stops by itself once every residual has dropped below this value. 0 runs all iterations."
@@ -1756,9 +1858,9 @@ class RunPanel(Panel):
         self.forces_on = QCheckBox("Record drag and lift every iteration")
         self.force_patches = QLineEdit()
         self.force_patches.setPlaceholderText("all surfaces that come from shapes")
-        self.ref_area = FloatEdit()
-        self.ref_length = FloatEdit()
-        self.ref_velocity = FloatEdit()
+        self.ref_area = FloatEdit(check=POSITIVE)
+        self.ref_length = FloatEdit(check=POSITIVE)
+        self.ref_velocity = FloatEdit(check=NOT_NEGATIVE)
         self.drag_dir = VectorEdit()
         self.lift_dir = VectorEdit()
         self._force_inputs = [self.force_patches, self.ref_area, self.ref_length, self.ref_velocity,
@@ -1852,7 +1954,7 @@ class RunPanel(Panel):
         self.rating_discharges = QLineEdit()
         self.rating_discharges.setPlaceholderText("for example 0.02, 0.04, 0.06")
         self.rating_discharges.setToolTip("The discharges to measure the head at, in m³/s, smallest first.")
-        self.rating_hold = FloatEdit(10.0)
+        self.rating_hold = FloatEdit(10.0, check=POSITIVE)
         self.rating_hold.setToolTip(
             "How long each discharge is held. The water level upstream must have settled by the end of it; "
             "a large reservoir needs longer."
@@ -1888,7 +1990,7 @@ class RunPanel(Panel):
         self.test_kind.addItem("Step: switched on and left on", "step")
         self.test_kind.addItem("Pulse: a short dose", "pulse")
         self.test_kind.setToolTip("A step test gives T10 directly, as in the field; a pulse gives the spread of times.")
-        self.test_duration = FloatEdit(0.0)
+        self.test_duration = FloatEdit(0.0, unit="s", check=NOT_NEGATIVE)
         self.test_duration.setToolTip("How long to follow the tracer, in seconds. 0 = three theoretical residence times V/Q.")
         self.test_button = QPushButton(icon("timer"), " Run the tracer test")
         self.test_button.setToolTip(
@@ -2236,11 +2338,11 @@ class ResultsPanel(Panel):
         self.loads_button.setToolTip("Force of the water on the structure and its overturning moment, at every saved time.")
         self.at_toe = QCheckBox("Moments about its downstream toe")
         self.at_toe.setChecked(True)
-        self.moment_point = VectorEdit()
+        self.moment_point = VectorEdit(unit="m")
         self.moment_point.setEnabled(False)
         self.moment_point.setToolTip("The point the moments are taken about, for example the hinge of a gate.")
         self.at_toe.toggled.connect(lambda on: self.moment_point.setEnabled(not on))
-        self.d50 = FloatEdit(2.0)
+        self.d50 = FloatEdit(2.0, check=POSITIVE)
         self.d50.setToolTip("Median grain size of the bed material, in millimetres: 0.2 fine sand, 2 coarse sand, 20 gravel.")
         self.shear_button = QPushButton(icon("layers"), " Bed shear stress and sediment movement")
         self.shear_button.setToolTip(

@@ -51,6 +51,7 @@ QPushButton[card="true"]:hover {{ border-color: {ACCENT}; background: #f5f9ff; }
 QLineEdit {{ border: 1px solid #c9d1db; border-radius: 5px; padding: 3px 6px; background: white; }}
 QLineEdit:focus {{ border-color: {ACCENT}; }}
 QLineEdit:disabled {{ background: #eef1f5; color: #8a96a3; }}
+QLineEdit[invalid="true"] {{ border: 1px solid {ERROR}; background: #fef2f2; color: #991b1b; }}
 QListWidget {{ background: {PANEL}; border: 1px solid {BORDER}; border-radius: 8px; outline: none; padding: 3px; }}
 QListWidget::item {{ padding: 5px 6px; border-radius: 5px; color: {TEXT}; }}
 QListWidget::item:selected {{ background: {SELECTED}; color: {TEXT}; }}

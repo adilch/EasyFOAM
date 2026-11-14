@@ -155,7 +155,7 @@ def test_the_contact_tank_is_one_of_the_examples(qapp):
     from easyfoam.gui.main_window import EXAMPLE_LABELS, MainWindow
     from easyfoam.gui.welcome import EXAMPLES, SHOWN, WelcomePage
 
-    assert SHOWN[-1] == "tank" and EXAMPLES["tank"][0] in icons.names() and "flow-tank" in icons.USED
+    assert "tank" in SHOWN and EXAMPLES["tank"][0] in icons.names() and "flow-tank" in icons.USED
     page = WelcomePage()
     assert "Contact tank" in page.example_buttons["tank"].text()
     window = MainWindow(enable_3d=False, detect=False)

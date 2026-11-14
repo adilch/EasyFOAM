@@ -59,7 +59,7 @@ current version, through WSL or natively), keeps **plain case folders** that
 remain usable by hand, and has no cell or core limits. That is the space
 EasyFOAM aims at. If that distinction does not matter to you, use BARAM.
 
-## Where EasyFOAM stands (v0.12)
+## Where EasyFOAM stands (v0.13)
 
 Legend: done = works and is tested end to end; partial; planned = see roadmap.
 
@@ -119,6 +119,8 @@ Legend: done = works and is tested end to end; partial; planned = see roadmap.
 | Tracer test in the frozen flow (step or pulse): T10, T50, T90, mean residence time, baffling factor, Morrill index, the residual of a decaying substance at the outlet | done |
 | Channel builder: rectangular, trapezoidal, compound (floodplains) or circular culvert sections, bed slope, straight pieces and bends; mesh fitted to the channel by blockMesh, starting water as a cell zone | done |
 | Terrain from XYZ points, ESRI ASCII grids, GeoTIFF rasters and LandXML surfaces: local coordinates, turned to run along x, resampled and closed into a solid that the mesh is cut from | done |
+| Hydraulic structures from design values, drawn as they are typed: WES ogee crest (design discharge), stepped spillway (flow regime), labyrinth weir, USBR stilling basins II / III / IV, box or pipe culverts on or buried in the bed, vertical-slot fishway | done |
+| Piano-key weirs, shaft and side-channel spillways, flip buckets, baffled chutes, flumes | planned |
 | Sediment transport and bed change, air entrainment | planned |
 | Boundary presets: velocity inlet, pressure outlet, wall, moving wall, slip, symmetry/empty | done |
 | Time tables for inflow and tailwater | done |

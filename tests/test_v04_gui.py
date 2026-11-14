@@ -120,7 +120,7 @@ def test_dam_break_runs_from_the_window_and_ends_on_the_water_surface_view(qapp,
     window.run_solver()
     wait_for_job(qapp, window)
     assert window.notices == []
-    assert window.run_panel.status.text() == "Run finished."
+    assert window.run_panel.status.text().startswith("Run finished")
     fields = [window.results_panel.field.itemData(i) for i in range(window.results_panel.field.count())]
     assert "alpha.water" in fields
     assert window.results_panel.mode.currentData() == "water"

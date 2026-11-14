@@ -149,6 +149,29 @@ at the bed slope. Terrain becomes an ordinary STL shape: the ground on a regular
 grid, closed with walls down its edges and a flat bottom below the base mesh, and
 snappyHexMesh keeps the side with the air above it.
 
+## Hydraulic structures
+
+A structure (`Shape.structure`) is kept as its design values, not as a surface: `structures.py`
+turns it into closed bodies of triangles whenever the case is written or drawn, so changing the
+design head reshapes the crest. It then follows the same path as the other drawn shapes. The
+bodies reach a little past the side walls and below the bed, so that snappyHexMesh cuts them
+cleanly instead of meeting a face that lies on a boundary of the base mesh; a box barrel resting
+on the bed gets its own floor below the bed for the same reason. Parts may overlap (the fishway's
+baffles pass through its floor): only the side the fluid reaches counts.
+
+Shapes and sizes follow published design rules, written from the formulas, not copied from any
+program: the WES standard crest (three arcs of 0.5, 0.2 and 0.04 Hd upstream of the apex, then
+x^1.85 = 2 Hd^0.85 y down to the face, Q = 2.18 W Hd^1.5 for P/Hd of 1.33 or more); Chanson's
+onset of nappe and skimming flow on stepped chutes; USBR Engineering Monograph 25 for basins II,
+III and IV (rows of blocks centred across the channel, baffles staggered against the chute blocks
+as far as their spacing allows); vertical-slot fishways with pools 10 slot widths long and 8 wide
+and a fastest jet of about √(2 g Δh). The fishway's slots are turned 30° into the pool by a head
+on the long baffle and a short baffle that widens downstream: with plain baffles and the slots in
+line, the first version's jets shot straight through the next slot and ran 20 to 60 % faster than
+√(2 g Δh); with the turned slots every slot runs at 1.19 to 1.24 times it. A culvert is one body,
+the embankment with its barrels as tunnels, built so that every edge is shared by exactly two
+triangles.
+
 ## Adding a solver
 
 1. Add it to `SOLVERS` in `solvers.py`.

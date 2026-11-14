@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stilling basin from the flow entering it — EasyFOAM tutorials</title>
+<meta name="description" content="Make a USBR Type III stilling basin from the depth and Froude number of the jet entering it, and see it hold the jump within 2.7 sequent depths.">
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="25" cy="32" r="8"/><path d="M8 15h14c11 0 13 7 23 7h11M8 49h14c11 0 13-7 23-7h11M41 32h15"/></svg><span>EasyFOAM</span><span class="brand-sub">tutorials</span></a>
+  <nav>
+    <a href="../index.html">All tutorials</a>
+    <a href="../tutorials/getting-started.html">Install</a>
+  </nav>
+</header>
+<div class="layout">
+<aside class="contents">
+  <a class="back" href="../index.html">← All tutorials</a>
+  <p class="contents-title">Steps</p>
+  <ol>
+<li><a href="#step-1">Open the example</a></li>
+<li><a href="#step-2">Name the project</a></li>
+<li><a href="#step-3">A fast jet</a></li>
+<li><a href="#step-4">The basin&#x27;s design</a></li>
+<li><a href="#step-5">Jet and tailwater</a></li>
+<li><a href="#step-6">Mesh and run</a></li>
+<li><a href="#step-7">The jump in the basin</a></li>
+<li><a href="#step-8">The long section</a></li>
+  </ol>
+</aside>
+<main class="tutorial">
+  <p class="crumb">Tutorial 14 of 19</p>
+  <h1>Stilling basin from the flow entering it</h1>
+  <p class="lead">Make a USBR Type III stilling basin from the depth and Froude number of the jet entering it, and see it hold the jump within 2.7 sequent depths.</p>
+  <div class="chips"><span class="chip">about 25 min</span><span class="chip level-intermediate">Intermediate</span><span class="chip topic">Free surface</span><span class="chip topic">Hydraulic structures</span><span class="chip topic">Hydraulic results</span></div>
+  <p>Water leaving a spillway or a gate is fast and shallow. Left to itself it forms a hydraulic jump about six sequent depths long, which moves about as the tailwater changes. A stilling basin holds the jump in place and makes it shorter. The US Bureau of Reclamation's basins (Engineering Monograph 25) are sized from the flow that enters them: Type III, for a Froude number above 4.5 and speeds below about 18 m/s, has a row of chute blocks, a staggered row of baffle blocks and an end sill, and needs only <strong>2.7 sequent depths</strong> of length.</p>
+<p>In this tutorial you open an example in which a jet 4 cm deep enters at a Froude number of 6, look at the basin EasyFOAM made for it, and run it.</p>
+  <div class="learn"><h3>What you will learn</h3><ul><li>make a USBR stilling basin from the depth and Froude number of the flow entering it</li><li>read its sequent depth, length and the tailwater it needs</li><li>feed a fast jet in through a slot at the inlet</li><li>see the jump held in the basin on a slice and in a long section</li></ul><p class="run-time">Computer time: about half an hour on four cores.</p></div>
+<section class="step" id="step-1">
+<h2><span class="step-number">1</span>Open the example</h2>
+<p>Start EasyFOAM. This case is one of the examples on the start page: it comes with every setting filled in, and this tutorial walks through each of them so that you understand the case and could build it yourself.</p>
+<ol class="marks"><li>Click <strong>Stilling basin</strong>.</li></ol>
+<figure><a href="img/basin/01.webp" class="zoom"><img src="img/basin/01.webp" alt="Stilling basin from the flow entering it, step 1: Open the example" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-2">
+<h2><span class="step-number">2</span>Name the project</h2>
+<p>The project is an ordinary folder that EasyFOAM creates for you.</p>
+<ol class="marks"><li>Type a name, for example <code>basin</code>.</li><li>Click <strong>Create project</strong>.</li></ol>
+<figure><a href="img/basin/02.webp" class="zoom"><img src="img/basin/02.webp" alt="Stilling basin from the flow entering it, step 2: Name the project" loading="lazy" width="650" height="248"></a></figure>
+</section>
+<section class="step" id="step-3">
+<h2><span class="step-number">3</span>A fast jet</h2>
+<p>The channel is a slice 0.24 m wide of a wide basin, with frictionless sides. The jet comes in through the bottom <strong>4 cm</strong> of the inlet: the box <strong>lid</strong> closes the rest. So the jet needs no tall reservoir and no gate above it. The region <strong>near_bed</strong> halves the cells along the bed, where the jet and the blocks are.</p>
+<ol class="marks"><li><strong>lid</strong>: a box from 4 cm above the bed upwards, at the inlet.</li><li><strong>near_bed</strong>: a region of finer cells.</li><li><strong>basin</strong>: the stilling basin, a structure.</li></ol>
+<figure><a href="img/basin/03.webp" class="zoom"><img src="img/basin/03.webp" alt="Stilling basin from the flow entering it, step 3: A fast jet" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-4">
+<h2><span class="step-number">4</span>The basin&#x27;s design</h2>
+<p>A basin is made from the flow entering it: <strong>Type III</strong>, a depth of <strong>0.04 m</strong> and a Froude number of <strong>6</strong>. That makes the jet 3.76 m/s fast, the sequent depth y2 <strong>0.32 m</strong> and the basin <strong>0.864 m</strong> long. Chute blocks as high, wide and far apart as the jet is deep stand at its entrance; baffle blocks 0.066 m high stand 0.8 y2 further on, and an end sill closes the basin.</p>
+<ol class="marks"><li><strong>USBR type</strong>: <em>Type III</em>.</li><li><strong>Depth entering y1</strong>: <code>0.04</code> m.</li><li><strong>Froude number Fr1</strong>: <code>6</code>.</li><li>The blocks and the sill, from the side and from above.</li><li>Sequent depth, length, tailwater and the size of every block.</li></ol>
+<figure><a href="img/basin/04.webp" class="zoom"><img src="img/basin/04.webp" alt="Stilling basin from the flow entering it, step 4: The basin&#x27;s design" loading="lazy" width="1350" height="800"></a></figure>
+<aside class="tip"><p>Choose Type IV and EasyFOAM tells you it is meant for Froude numbers between 2.5 and 4.5.</p></aside>
+</section>
+<section class="step" id="step-5">
+<h2><span class="step-number">5</span>Jet and tailwater</h2>
+<p>The inlet is a <strong>velocity inlet</strong> of water at the jet's speed, <strong>3.7585 m/s</strong>, through the slot under the lid. The outlet holds the tailwater at the sequent depth, <strong>0.32 m</strong>, as a Type III basin needs.</p>
+<ol class="marks"><li>The boundary <strong>inlet</strong>.</li><li><strong>Velocity</strong>: <code>3.7585</code>, <code>0</code>, <code>0</code> m/s.</li></ol>
+<figure><a href="img/basin/05.webp" class="zoom"><img src="img/basin/05.webp" alt="Stilling basin from the flow entering it, step 5: Jet and tailwater" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-6">
+<h2><span class="step-number">6</span>Mesh and run</h2>
+<p>Make the mesh and run the eight seconds on four cores.</p>
+<ol class="marks"><li>Click <strong>Mesh</strong> in the toolbar (or press <strong>F5</strong>).</li><li><strong>End time</strong>: <code>8</code> s.</li><li>Click <strong>Run</strong> in the toolbar (or press <strong>F6</strong>).</li></ol>
+<figure><a href="img/basin/06.webp" class="zoom"><img src="img/basin/06.webp" alt="Stilling basin from the flow entering it, step 6: Mesh and run" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-7">
+<h2><span class="step-number">7</span>The jump in the basin</h2>
+<p>Show <strong>alpha.water</strong> on a slice through the middle of the channel, seen from the side. The jet strikes the chute blocks and the baffle blocks, the jump rolls over them, and the end sill lifts the water to the tailwater depth: the jump is over by the end of the basin.</p>
+<ol class="marks"><li><strong>Quantity</strong>: <code>alpha.water</code>, the share of water.</li><li><strong>Slice plane</strong>: <em>Normal to y</em>, a side view.</li></ol>
+<figure><a href="img/basin/07.webp" class="zoom"><img src="img/basin/07.webp" alt="Stilling basin from the flow entering it, step 7: The jump in the basin" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-8">
+<h2><span class="step-number">8</span>The long section</h2>
+<p>Average the last <strong>12</strong> saved times and press <strong>Long section</strong>. The jump starts at the chute blocks, and the water is up to 0.9 y2 by the end sill, <strong>2.7 y2</strong> into the basin; a free jump would need about 6 y2, 1.9 m. After the basin the flow is calm, with a Froude number of about <strong>0.27</strong>, and the energy lost is what Bélanger gives for the jump.</p>
+<ol class="marks"><li><strong>Average over</strong>: <code>12</code> saved times.</li><li>Press <strong>Long section</strong>.</li><li>Depth and Froude number along the basin.</li></ol>
+<figure><a href="img/basin/08.webp" class="zoom"><img src="img/basin/08.webp" alt="Stilling basin from the flow entering it, step 8: The long section" loading="lazy" width="1900" height="1125"></a></figure>
+<aside class="tip"><p><strong>Structure</strong> in the Geometry step also makes a labyrinth weir, a stepped spillway, a culvert and a vertical-slot fishway in the same way.</p></aside>
+</section>
+  <nav class="pager"><a class="prev" href="ogee.html"><span>Previous</span>Ogee spillway crest from its design head</a><a class="next" href="rating.html"><span>Next</span>Rating curve of a weir</a></nav>
+</main>
+</div>
+<div class="lightbox" hidden><img alt=""></div>
+<footer class="foot">
+  <p>EasyFOAM is free software (GPL-3.0-or-later). It is an independent project: it is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com and owner of the OPENFOAM® and OpenCFD® trade marks, and it is not affiliated with any other vendor of simulation software.</p>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>

@@ -48,11 +48,24 @@ class Motion:
 
 
 @dataclass
+class Structure:
+    """A hydraulic structure made from its design values, in a straight channel along +x (see easyfoam.structures)."""
+
+    kind: str = "ogee"  # ogee | stepped | labyrinth | basin | culvert | fishway
+    station: float = 0.0  # where it starts along the channel (x) [m]
+    bed: float = 0.0  # level of the bed it stands on [m]
+    y0: float = 0.0  # one side wall of the channel [m]
+    width: float = 0.5  # width of the channel, across (y) [m]
+    values: dict[str, float] = field(default_factory=dict)  # design values; any left out take their defaults
+
+
+@dataclass
 class Shape:
     """A piece of geometry: an STL surface or a primitive."""
 
     name: str
-    kind: str = "stl"  # stl | box | sphere | cylinder | cone | wedge | profile (a sketched outline, extruded)
+    #: stl | box | sphere | cylinder | cone | wedge | profile (a sketched outline, extruded) | structure
+    kind: str = "stl"
     file: str = ""  # STL file name inside constant/triSurface
     role: str = "wall"  # wall = meshed surface; refinement = region to refine only
     min: list[float] = _vec(0, 0, 0)  # box
@@ -76,6 +89,7 @@ class Shape:
     #: STL regions (solids) -> patch type; empty for single-solid surfaces
     regions: dict[str, str] = field(default_factory=dict)
     motion: Motion = field(default_factory=Motion)
+    structure: Structure | None = None  # structure: what it is and its design values
 
 
 @dataclass

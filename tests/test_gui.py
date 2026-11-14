@@ -32,14 +32,16 @@ class Counter:
 # --- widgets ---------------------------------------------------------------
 
 
-def test_float_edit_accepts_scientific_notation_and_reverts_garbage(qapp):
+def test_float_edit_accepts_scientific_notation_and_points_out_garbage(qapp):
     from easyfoam.gui.widgets import FloatEdit
 
     edit = FloatEdit(1.5)
     type_into(edit, "1e-5")
     assert edit.value() == 1e-5
-    type_into(edit, "fast")
-    assert edit.value() == 1e-5 and edit.text() == "1e-05"
+    type_into(edit, "fast")  # kept in red with the reason, instead of quietly put back
+    assert edit.value() == 1e-5 and edit.text() == "fast" and "not a number" in edit.problem
+    edit.set_value(2.0)
+    assert edit.text() == "2" and not edit.problem
 
 
 def test_vector_edit_reports_three_components(qapp):
@@ -281,7 +283,7 @@ def test_cavity_example_meshes_and_runs_from_the_window(qapp, tmp_path):
 
     window.run_solver()
     wait_for_job(qapp, window)
-    assert window.run_panel.status.text() == "Run finished."
+    assert window.run_panel.status.text().startswith("Run finished")
     assert {"Ux", "Uy", "p"} <= set(window._curves)
     assert window.results_panel.time.count() == 2  # 0 and 20
     assert window.current_step() == "Results"

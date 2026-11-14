@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 from easyfoam import channel as chm
 from easyfoam.gui.icons import icon
 from easyfoam.gui.style import MUTED, set_primary
-from easyfoam.gui.widgets import FloatEdit
+from easyfoam.gui.widgets import NOT_NEGATIVE, POSITIVE, FloatEdit
 from easyfoam.model import Channel, ChannelSegment
 
 SECTION_LABELS = {
@@ -169,17 +169,17 @@ class ChannelDialog(QDialog):
         for key, label in SECTION_LABELS.items():
             self.section.addItem(label, key)
         self.section.setCurrentIndex(max(0, self.section.findData(start.section)))
-        self.bottom_width = FloatEdit(start.bottom_width)
-        self.depth = FloatEdit(start.depth)
-        self.side_slope = FloatEdit(start.side_slope)
-        self.berm_width = FloatEdit(start.berm_width)
-        self.berm_depth = FloatEdit(start.berm_depth)
-        self.berm_slope = FloatEdit(start.berm_slope)
-        self.diameter = FloatEdit(start.diameter)
+        self.bottom_width = FloatEdit(start.bottom_width, check=POSITIVE)
+        self.depth = FloatEdit(start.depth, check=POSITIVE)
+        self.side_slope = FloatEdit(start.side_slope, check=NOT_NEGATIVE)
+        self.berm_width = FloatEdit(start.berm_width, check=NOT_NEGATIVE)
+        self.berm_depth = FloatEdit(start.berm_depth, check=NOT_NEGATIVE)
+        self.berm_slope = FloatEdit(start.berm_slope, check=NOT_NEGATIVE)
+        self.diameter = FloatEdit(start.diameter, check=POSITIVE)
         self.slope = FloatEdit(start.slope)
-        self.freeboard = FloatEdit(start.freeboard)
-        self.cell_size = FloatEdit(start.cell_size)
-        self.water_depth = FloatEdit(start.water_depth)
+        self.freeboard = FloatEdit(start.freeboard, check=NOT_NEGATIVE)
+        self.cell_size = FloatEdit(start.cell_size, check=POSITIVE)
+        self.water_depth = FloatEdit(start.water_depth, check=NOT_NEGATIVE)
         tips = {
             self.bottom_width: "Width of the bed of the main channel.",
             self.depth: "Height of the main channel's banks above its bed.",

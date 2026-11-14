@@ -78,7 +78,7 @@ def test_the_window_starts_on_a_welcome_page_and_switches_to_the_workspace(qapp,
     assert window.pages.currentWidget() is window.welcome
     sphere("demo").save(tmp_path)
     window.open_project(tmp_path)
-    assert window.pages.currentWidget() is window.workspace
+    assert window.pages.currentWidget() is window.workspace_page
     window.close()
 
 

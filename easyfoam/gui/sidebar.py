@@ -14,6 +14,8 @@ DETAIL_ROLE = Qt.ItemDataRole.UserRole + 2
 STATE_ROLE = Qt.ItemDataRole.UserRole + 3
 
 ROW_HEIGHT = 52
+FULL_WIDTH = 216  # the list with names and summaries
+COMPACT_WIDTH = 58  # icons and badges only
 STEP_ICONS = {
     "Geometry": "shapes",
     "Mesh": "mesh",
@@ -25,8 +27,10 @@ STEP_ICONS = {
 
 
 class StepDelegate(QStyledItemDelegate):
+    compact = False  # icons and badges only; names and summaries go to the tooltips
+
     def sizeHint(self, option, index) -> QSize:
-        return QSize(200, ROW_HEIGHT)
+        return QSize(COMPACT_WIDTH - 10 if self.compact else 200, ROW_HEIGHT)
 
     def paint(self, painter: QPainter, option, index) -> None:
         painter.save()
@@ -45,10 +49,16 @@ class StepDelegate(QStyledItemDelegate):
 
         name = index.data(ICON_ROLE)
         colour = ACCENT if selected else (TEXT if enabled else "#aab4c0")
+        state = index.data(STATE_ROLE) or "todo"
+        if self.compact:
+            if name:
+                painter.drawPixmap(rect.center().x() - 12, rect.center().y() - 13, pixmap(name, 21, colour))
+            painter.drawPixmap(rect.center().x() + 4, rect.center().y() + 3, pixmap(STATE_ICONS[state], 13, STATE_COLOURS[state]))
+            painter.restore()
+            return
         if name:
             painter.drawPixmap(rect.left() + 14, rect.center().y() - 10, pixmap(name, 21, colour))
 
-        state = index.data(STATE_ROLE) or "todo"
         badge_x = rect.right() - 28
         painter.drawPixmap(badge_x, rect.center().y() - 8, pixmap(STATE_ICONS[state], 17, STATE_COLOURS[state]))
 

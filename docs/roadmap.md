@@ -186,7 +186,7 @@ Open items:
   limitedLinear left the age 8 % high or blew up a decaying tracer), and water drawn back in at an outlet
   keeps its own concentration.
 
-## v0.12 - channels and terrain (this version)
+## v0.12 - channels and terrain (done)
 
 - A channel builder: rectangular, trapezoidal, compound or circular culvert sections, bed slope, and a
   centreline of straight pieces and bends. blockMesh makes a mesh fitted to it (cells follow the banks
@@ -200,6 +200,24 @@ Open items:
 - Channels: transitions between sections, a different section per piece, drop structures built in.
 - Terrain: breaklines and building footprints; burning a surveyed channel into a coarser ground.
 - Long sections on terrain follow the axis of the base mesh; a centreline drawn on the map.
+
+## v0.13 - hydraulic structures from design values (this version)
+
+- A **Structure** menu in the Geometry step and an `easyfoam structure` command make six structures
+  from their design values, drawn from the side and from above as they are typed: an ogee crest
+  shaped by the WES standard for its design head (with its design discharge), a stepped spillway
+  (with its flow regime), a labyrinth weir, USBR stilling basins II, III and IV sized from the
+  entering depth and Froude number, a box or pipe culvert through an embankment (barrels on or
+  buried in the bed) and a vertical-slot fishway.
+- Two new examples and tutorials: an ogee crest run at its design head, and a Type III basin
+  holding the jump of a Froude 6 jet, fed through a slot at the inlet instead of a tall reservoir.
+
+Open items:
+
+- Piano-key weirs, side-channel and shaft (morning-glory) spillways, flip buckets, baffled chutes
+  (USBR Type IX), Parshall flumes; wing walls and aprons for culverts.
+- Structures placed on a built channel, following its bed slope and curved centreline.
+- A rating curve read straight from a structure's design (head against discharge).
 
 ## Next for hydraulics
 

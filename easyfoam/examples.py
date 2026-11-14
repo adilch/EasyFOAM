@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from easyfoam.model import BaseFace, Boundary, Motion, Project, Shape, Tracer
+from easyfoam.model import BaseFace, Boundary, Motion, Project, Shape, Structure, Tracer
 
 
 def empty(name: str) -> Project:
@@ -260,6 +260,74 @@ def floating(name: str) -> Project:
     return p
 
 
+def _channel_slice(p: Project, length: float, width: float, height: float, cells: list[int]) -> None:
+    """A slice of a wide channel along x: frictionless sides, a bed, an inlet, an outlet and the open air above."""
+    base = p.mesh.base
+    base.min, base.max, base.cells = [0, 0, 0], [length, width, height], cells
+    base.faces["xMin"] = BaseFace("inlet", "patch")
+    base.faces["xMax"] = BaseFace("outlet", "patch")
+    base.faces["yMin"] = base.faces["yMax"] = BaseFace("sides", "patch")  # slip: a slice of a wide channel
+    base.faces["zMin"] = BaseFace("bed", "wall")
+    base.faces["zMax"] = BaseFace("atmosphere", "patch")
+    _water(p)
+    p.physics.turbulence = "kOmegaSST"
+    p.boundaries["atmosphere"] = Boundary(kind="atmosphere")
+
+
+def ogee(name: str) -> Project:
+    """An ogee spillway crest shaped for a 0.1 m design head passes its design discharge (a thin slice).
+
+    The crest stands 0.4 m above the bed (P/Hd = 4). Through the 2 cm slice, Q = 2.18 W Hd^1.5 is 1.38 litres a
+    second; the head over the crest should come out at Hd, with about atmospheric pressure along the crest.
+    """
+    from easyfoam.structures import WES_C
+
+    p = Project(name=name)
+    hd, height, width, station = 0.1, 0.4, 0.02, 1.5
+    _channel_slice(p, 3.5, width, 0.8, [280, 1, 64])
+    crest = Structure(kind="ogee", station=station, width=width,
+                      values={"design_head": hd, "height": height, "face_slope": 0.75, "toe_radius": 0.1})  # fmt: skip
+    p.shapes.append(Shape("ogee", kind="structure", structure=crest, level_min=1, level_max=1))
+    p.physics.water_regions = [[0, 0, 0, station, width, height + hd]]  # the reservoir, at the design head
+    p.boundaries["inlet"] = Boundary(kind="flowRateInlet", flow_rate=round(WES_C * width * hd**1.5, 8))
+    p.boundaries["outlet"] = Boundary(kind="freeOutflow")
+    p.probes = [[1.0, width / 2, 0.3]]  # a gauge in the reservoir, five design heads upstream of the crest
+    p.flow_monitors = ["outlet"]
+    run = p.run
+    run.end_time, run.delta_t, run.write_interval, run.max_courant, run.processors = 10.0, 0.001, 0.5, 0.5, 2
+    return p
+
+
+def basin(name: str) -> Project:
+    """A USBR Type III stilling basin holds the jump of a fast jet (y1 = 4 cm, Froude 6) within 2.7 y2.
+
+    The jet comes in through a slot under a lid at the inlet, so no tall reservoir is needed, and the outlet holds
+    the sequent depth y2 = 0.32 m. The slice is 0.24 m wide, with three chute blocks and two baffle blocks.
+    """
+    from easyfoam.structures import basin_design
+
+    p = Project(name=name)
+    y1, froude, width, station = 0.04, 6.0, 0.24, 0.3
+    design = basin_design(y1, froude, 3)
+    _channel_slice(p, 2.4, width, 0.5, [120, 12, 25])
+    out = 0.05  # how far the lid and the region of finer cells reach past the channel, so that they cut it cleanly
+    p.shapes += [
+        Shape("lid", kind="box", min=[-out, -out, y1], max=[0.1, width + out, 0.5 + out], level_min=1, level_max=1),
+        Shape("near_bed", kind="box", role="refinement", region_level=1, min=[-out, -out, -out],
+              max=[1.5, width + out, 0.12]),
+        Shape("basin", kind="structure", level_min=1, level_max=1,
+              structure=Structure(kind="basin", station=station, width=width,
+                                  values={"basin_type": 3, "y1": y1, "froude": froude})),
+    ]  # fmt: skip
+    p.physics.water_regions = [[0, 0, 0, station, width, y1], [station, 0, 0, 2.4, width, round(design["y2"], 4)]]
+    p.boundaries["inlet"] = Boundary(kind="velocityInlet", velocity=[round(design["v1"], 4), 0.0, 0.0])
+    p.boundaries["outlet"] = Boundary(kind="waterLevelOutlet", level=round(design["y2"], 4))
+    p.flow_monitors = ["outlet"]
+    run = p.run
+    run.end_time, run.delta_t, run.write_interval, run.max_courant, run.processors = 8.0, 0.001, 0.25, 0.6, 4
+    return p
+
+
 EXAMPLES: dict[str, Callable[[str], Project]] = {
     "empty": empty,
     "sphere": sphere,
@@ -272,4 +340,6 @@ EXAMPLES: dict[str, Callable[[str], Project]] = {
     "floating": floating,
     "jump": jump,
     "tank": tank,
+    "ogee": ogee,
+    "basin": basin,
 }

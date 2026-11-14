@@ -38,9 +38,11 @@ EXAMPLES = {
     "floating": ("flow-float", "Floating box", "A body bobs until it floats at rest"),
     "jump": ("flow-jump", "Hydraulic jump", "Below a sluice gate, checked against Bélanger"),
     "tank": ("flow-tank", "Contact tank", "Baffles, water age and a T10 tracer test"),
+    "ogee": ("structure-ogee", "Ogee spillway crest", "Shaped for its design head, which it passes"),
+    "basin": ("structure-basin", "Stilling basin", "USBR Type III holds a Froude 6 jump"),
 }
 #: the examples offered on the welcome page and in the File menu, in this order
-SHOWN = ("sphere", "pipe", "cavity", "weir", "dambreak", "waves", "gate", "floating", "jump", "tank")
+SHOWN = ("sphere", "pipe", "cavity", "weir", "dambreak", "waves", "gate", "floating", "jump", "tank", "ogee", "basin")
 
 
 class WelcomePage(QWidget):

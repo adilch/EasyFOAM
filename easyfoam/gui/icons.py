@@ -1,7 +1,7 @@
 """SVG icons, drawn in any colour and sharp on high-DPI screens.
 
 Most icons come from Lucide (ISC licence, see ``icons/LICENSE-lucide.txt``);
-``mesh``, the ``flow-*`` icons and the ``easyfoam`` logo are EasyFOAM's own.
+``mesh``, the ``flow-*``, ``shape-*`` and ``structure-*`` icons and the ``easyfoam`` logo are EasyFOAM's own.
 """
 
 from __future__ import annotations
@@ -29,7 +29,9 @@ USED = (
     "gauge", "crosshair", "locate-fixed", "arrow-right", "arrow-left", "wand", "ruler", "layers",
     "flow-body", "flow-pipe", "flow-cavity", "flow-weir", "flow-dam", "droplet", "book-open", "cpu",
     "flow-gate", "flow-float", "shape-cone", "shape-wedge", "shape-outline", "draw", "force", "flow-jump",
-    "flow-tank", "timer", "chart-line", "flow-channel", "flow-terrain",
+    "flow-tank", "timer", "chart-line", "flow-channel", "flow-terrain", "structure-ogee", "structure-stepped",
+    "structure-labyrinth", "structure-basin", "structure-culvert", "structure-fishway", "panel-fold-left",
+    "panel-fold-right", "panel-fold-down", "panel-fold-up", "chevrons-left", "chevrons-right", "layout", "undo", "redo",
 )  # fmt: skip
 
 

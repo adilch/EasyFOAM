@@ -56,3 +56,15 @@ def remember_projects_folder(folder: os.PathLike | str) -> None:
     data = _read()
     data["projects_folder"] = str(folder)
     _write(data)
+
+
+def load_layout() -> dict:
+    """How the panels of the main window were arranged last time (empty if never saved)."""
+    layout = _read().get("layout")
+    return layout if isinstance(layout, dict) else {}
+
+
+def save_layout(layout: dict) -> None:
+    data = _read()
+    data["layout"] = layout
+    _write(data)

@@ -12,6 +12,8 @@
     easyfoam loads CASE WALL...       force and overturning moment of the water on structures
     easyfoam channel CASE [--piece..] build an open channel: section, bed slope, pieces and bends
     easyfoam terrain CASE FILE        flow over the ground of a survey (XYZ, ASC, GeoTIFF, LandXML)
+    easyfoam structure CASE KIND      a hydraulic structure from its design values (ogee, stepped, labyrinth,
+                                      basin, culvert, fishway)
     easyfoam gui [CASE]               open the desktop application
 """
 
@@ -262,6 +264,46 @@ def cmd_terrain(args) -> int:
     return 0
 
 
+def cmd_structure(args) -> int:
+    from easyfoam import structures as sm
+    from easyfoam.model import Shape
+
+    case = Path(args.case)
+    project = _load(case)
+    base = project.mesh.base
+    st = sm.place(args.kind, base.min, base.max)
+    for attribute in ("station", "bed", "y0", "width"):
+        if getattr(args, attribute) is not None:
+            setattr(st, attribute, getattr(args, attribute))
+    if args.kind == "fishway" and args.width is not None:
+        st.values["slot"] = float(f"{st.width / 8:.3g}")  # pools 8 slots wide fill the channel
+    known = [spec.key for spec in sm.VALUES[args.kind]]
+    for text in args.set or []:
+        key, _, number = text.partition("=")
+        if key not in known:
+            raise CliError(f"'{key}' is not a design value of the {args.kind}; it has {', '.join(known)}")
+        try:
+            st.values[key] = float(number)
+        except ValueError:
+            raise CliError(f"'{text}': give NAME=NUMBER") from None
+    wrong = sm.problems(st)
+    if wrong:
+        raise CliError("; ".join(wrong))
+    taken = {s.name for s in project.shapes}
+    name = args.name or next(f"{args.kind}{n}" for n in range(1, len(taken) + 2) if f"{args.kind}{n}" not in taken)
+    project.shapes = [s for s in project.shapes if s.name != name]
+    project.shapes.append(Shape(name, kind="structure", structure=st, level_min=1, level_max=2))
+    project.mesh.snappy = True
+    project.save(case)
+    print(f"Added the {sm.kind_name(args.kind)} '{name}', starting at x = {st.station:g} m on a bed at "
+          f"{st.bed:g} m, across a channel {st.width:g} m wide")  # fmt: skip
+    for spec in sm.VALUES[args.kind]:
+        print(f"  {spec.key} = {sm.value(st, spec.key):g} {spec.unit}".rstrip())
+    for line in sm.build(st).info:
+        print(f"  {line}")
+    return 0
+
+
 def cmd_gui(args) -> int:
     from easyfoam.gui.app import main as gui_main
 
@@ -359,6 +401,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--top", type=float, help="top of the model [m]")
     p.add_argument("--discharge", type=float, default=1.0, help="inflow [m3/s]")
     p.set_defaults(func=cmd_terrain)
+
+    from easyfoam.structures import KINDS, VALUES
+
+    listed = "; ".join(f"{kind}: {', '.join(v.key for v in VALUES[kind])}" for kind in KINDS)
+    p = sub.add_parser("structure", help="a hydraulic structure from its design values, right across the channel",
+                       epilog=f"design values: {listed}")  # fmt: skip
+    p.add_argument("case")
+    p.add_argument("kind", choices=list(KINDS))
+    p.add_argument("--name", help="name of the shape and of its boundary (default: the kind and a number)")
+    p.add_argument("--station", type=float, help="where it starts along x [m] (default: a third of the way)")
+    p.add_argument("--bed", type=float, help="bed level [m] (default: the floor of the base mesh)")
+    p.add_argument("--y0", type=float, help="the first side wall [m] (default: the side of the base mesh)")
+    p.add_argument("--width", type=float, help="channel width [m] (default: that of the base mesh)")
+    p.add_argument("--set", action="append", metavar="NAME=VALUE",
+                   help="a design value, for example design_head=0.12 (repeat)")  # fmt: skip
+    p.set_defaults(func=cmd_structure)
 
     p = sub.add_parser("gui", help="open the desktop application")
     p.add_argument("case", nargs="?")

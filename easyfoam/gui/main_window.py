@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import re
+import time
 from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QFont, QKeySequence
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -20,9 +23,10 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
-    QSplitter,
     QStackedWidget,
+    QSystemTrayIcon,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -38,6 +42,7 @@ from easyfoam.geometry import safe_name
 from easyfoam.gui import state
 from easyfoam.gui.icons import icon
 from easyfoam.gui.jobs import DetectThread, JobThread
+from easyfoam.gui.layout import FoldingSplitter
 from easyfoam.gui.panels import (
     BoundaryPanel,
     GeometryPanel,
@@ -46,11 +51,22 @@ from easyfoam.gui.panels import (
     ResultsPanel,
     RunPanel,
 )
-from easyfoam.gui.sidebar import DETAIL_ROLE, ICON_ROLE, ROW_HEIGHT, STATE_ROLE, STEP_ICONS, StepDelegate
+from easyfoam.gui.sidebar import (
+    COMPACT_WIDTH,
+    DETAIL_ROLE,
+    FULL_WIDTH,
+    ICON_ROLE,
+    ROW_HEIGHT,
+    STATE_ROLE,
+    STEP_ICONS,
+    StepDelegate,
+)
 from easyfoam.gui.welcome import EXAMPLES as EXAMPLE_CARDS
 from easyfoam.gui.welcome import SHOWN as EXAMPLES_SHOWN
 from easyfoam.gui.welcome import NewProjectDialog, WelcomePage
+from easyfoam.history import History
 from easyfoam.model import PROJECT_FILE, Project
+from easyfoam.pace import Pace, in_words, took
 from easyfoam.pipeline import (
     JobResult,
     computed_times,
@@ -75,6 +91,8 @@ EXAMPLE_LABELS = {
     "floating": "Example: floating box (moved by the water)",
     "jump": "Example: hydraulic jump below a sluice gate",
     "tank": "Example: chlorine contact tank (water age, T10)",
+    "ogee": "Example: ogee spillway crest at its design head",
+    "basin": "Example: USBR Type III stilling basin",
     "cavity": "Example: lid-driven cavity",
 }
 MESH_MOTION_RESIDUALS = ("pcorr", "cellDisplacement")
@@ -84,6 +102,9 @@ NO_MOTION_TEXT ="Give a shape a motion in the Geometry step to follow it here."
 RESIDUAL_COLOURS = ["#4c78a8", "#f58518", "#54a24b", "#e45756", "#b279a2", "#72b7b2", "#9d755d", "#eeca3b"]
 _CELLS = re.compile(r"^\s*cells:\s+(\d+)")
 MAX_LOG_BLOCKS = 20000
+#: panel sizes when nothing is remembered: settings | view and plots, and view | plots and log
+DEFAULT_LAYOUT = {"centre": [486, 810], "right": [600, 240]}
+ALERT_AFTER = 20.0  # seconds: a task that takes longer is announced when it ends, if no one is looking
 
 
 class MainWindow(QMainWindow):
@@ -103,12 +124,22 @@ class MainWindow(QMainWindow):
         self._force_curves: dict = {}
         self._pending_field = ""
         self._ticks = 0
+        self._pace = Pace()  # how fast the running task goes, for the time it still needs
+        self._job_started = 0.0
+        self._job_total: float | None = None  # the simulated time the task runs to
+        self._tray: QSystemTrayIcon | None = None
+        self.history = History()  # the set-up after each change, for undo and redo
 
         self.resize(1520, 900)
         self.setWindowIcon(icon("easyfoam"))
         self._build_panels()
         self._build_centre(enable_3d)
         self._build_actions()
+        self.workspace.folded_changed.connect(self._settings_folded)
+        self.right.folded_changed.connect(self._plots_folded)
+        self._plots_folded(False)
+        self.set_compact_steps(False)
+        self._layout_applied = False  # the panels are sized once the workspace is first on screen
         self._set_project_open(False)
         self._update_title()
 
@@ -121,6 +152,9 @@ class MainWindow(QMainWindow):
 
         self.runtime_label = QLabel("OpenFOAM: searching…" if detect else "OpenFOAM: not selected")
         self.statusBar().addPermanentWidget(self.runtime_label)
+        self.time_left = QLabel("")  # how long the running task still needs, once its pace is known
+        self.time_left.hide()
+        self.statusBar().addPermanentWidget(self.time_left)
         self.progress = QProgressBar()
         self.progress.setFixedWidth(220)
         self.progress.setRange(0, 100)
@@ -145,12 +179,14 @@ class MainWindow(QMainWindow):
         self.steps = QListWidget()
         self.steps.setObjectName("steps")
         self.steps.addItems(STEPS)
-        self.steps.setItemDelegate(StepDelegate(self.steps))
+        self.step_delegate = StepDelegate(self.steps)
+        self.steps.setItemDelegate(self.step_delegate)
         self.steps.setMouseTracking(True)
         for row, name in enumerate(STEPS):
             self.steps.item(row).setData(ICON_ROLE, STEP_ICONS[name])
             self.steps.item(row).setData(STATE_ROLE, "todo")
-        self.steps.setFixedWidth(216)
+            self.steps.item(row).setToolTip(name)
+        self.steps.setFixedWidth(FULL_WIDTH)
         self.steps.setMinimumHeight(ROW_HEIGHT * len(STEPS) + 6)
         self.stack = QStackedWidget()
         for panel in self.panels:
@@ -185,15 +221,21 @@ class MainWindow(QMainWindow):
         self.results_panel.export_requested.connect(lambda: self.export_table())
 
     def _build_centre(self, enable_3d: bool) -> None:
-        left = QWidget()
-        columns = QHBoxLayout(left)
-        columns.setContentsMargins(8, 8, 0, 6)
-        columns.setSpacing(8)
-        columns.addWidget(self.steps)  # the workflow, full height, in its own column
+        # the workflow, full height, in its own column; it narrows to its icons
+        self.steps_column = QWidget()
+        steps_layout = QVBoxLayout(self.steps_column)
+        steps_layout.setContentsMargins(8, 8, 0, 6)
+        steps_layout.setSpacing(2)
+        steps_layout.addWidget(self.steps, 1)
+        self.compact_button = QToolButton()
+        self.compact_button.setAutoRaise(True)
+        self.compact_button.clicked.connect(lambda _checked=False: self.set_compact_steps(not self.step_delegate.compact))
+        steps_layout.addWidget(self.compact_button, 0, Qt.AlignmentFlag.AlignLeft)
+
+        # the settings of the chosen step; they fold away to make the 3D view wider
         panel_column = QWidget()
         left_layout = QVBoxLayout(panel_column)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        columns.addWidget(panel_column, 1)
+        left_layout.setContentsMargins(8, 8, 0, 6)
         left_layout.addWidget(self.stack, 1)
         self.back_button = QPushButton(icon("arrow-left"), " Back")
         self.next_button = QPushButton("Next")
@@ -201,12 +243,20 @@ class MainWindow(QMainWindow):
         self.next_button.setLayoutDirection(Qt.LayoutDirection.RightToLeft)  # icon after the text
         self.back_button.clicked.connect(lambda: self._go(-1))
         self.next_button.clicked.connect(lambda: self._go(+1))
+        self.fold_settings_button = QToolButton()
+        self.fold_settings_button.setAutoRaise(True)
+        self.fold_settings_button.setIcon(icon("panel-fold-left"))
+        self.fold_settings_button.setToolTip(
+            "Fold the settings away to make the 3D view wider (Ctrl+B). Click a step to bring them back."
+        )
+        self.fold_settings_button.clicked.connect(lambda _checked=False: self.workspace.set_folded(True))
         nav = QHBoxLayout()
+        nav.addWidget(self.fold_settings_button)
         nav.addWidget(self.back_button)
         nav.addStretch(1)
         nav.addWidget(self.next_button)
         left_layout.addLayout(nav)
-        left.setMinimumWidth(690)
+        panel_column.setMinimumWidth(380)
 
         self.viewer = None
         if enable_3d:
@@ -234,6 +284,8 @@ class MainWindow(QMainWindow):
         self._table = None  # the numbers behind the last hydraulic plot
         self._shear_wanted = False
         self.motion_label = QLabel(NO_MOTION_TEXT)
+        for label in (self.flow_label, self.force_label, self.motion_label):
+            label.setWordWrap(True)  # a long line would otherwise set how narrow the plots (and the window) can be
         self._motion_curves: dict = {}
         self._rotation_curves: dict = {}
         self.bottom = QTabWidget()
@@ -318,28 +370,42 @@ class MainWindow(QMainWindow):
         except ImportError:  # the window still works without live plots
             pass
         self.bottom.addTab(self.log, "Log")
+        # the plots and the log fold down to their tab headers; a click on a tab opens them again
+        self.fold_plots_button = QToolButton()
+        self.fold_plots_button.setAutoRaise(True)
+        self.fold_plots_button.clicked.connect(lambda _checked=False: self.right.toggle())
+        self.bottom.setCornerWidget(self.fold_plots_button, Qt.Corner.TopRightCorner)
+        self.bottom.tabBarClicked.connect(lambda _index: self.right.set_folded(False))
 
-        right = QSplitter(Qt.Orientation.Vertical)
-        right.addWidget(view_widget)
-        right.addWidget(self.bottom)
-        right.setStretchFactor(0, 3)
-        right.setStretchFactor(1, 1)
-        right.setSizes([600, 240])
+        self.right = FoldingSplitter(Qt.Orientation.Vertical, fold=1, open_size=DEFAULT_LAYOUT["right"][1],
+                                     folded_size=lambda: self.bottom.tabBar().sizeHint().height())  # fmt: skip
+        self.right.addWidget(view_widget)
+        self.right.addWidget(self.bottom)
+        self.right.setStretchFactor(0, 3)
+        self.right.setStretchFactor(1, 1)
+        self.right.setSizes(DEFAULT_LAYOUT["right"])
 
-        centre = QSplitter(Qt.Orientation.Horizontal)
-        centre.addWidget(left)
-        centre.addWidget(right)
-        centre.setStretchFactor(0, 0)
-        centre.setStretchFactor(1, 1)
-        centre.setSizes([710, 810])
-        self.workspace = centre
+        self.workspace = FoldingSplitter(Qt.Orientation.Horizontal, fold=0, open_size=DEFAULT_LAYOUT["centre"][0])
+        self.workspace.addWidget(panel_column)
+        self.workspace.addWidget(self.right)
+        self.workspace.setStretchFactor(0, 0)
+        self.workspace.setStretchFactor(1, 1)
+        self.workspace.setSizes(DEFAULT_LAYOUT["centre"])
+        self.steps.itemClicked.connect(lambda _item: self.workspace.set_folded(False))
+
+        self.workspace_page = QWidget()
+        page_layout = QHBoxLayout(self.workspace_page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.setSpacing(0)
+        page_layout.addWidget(self.steps_column)
+        page_layout.addWidget(self.workspace, 1)
         self.welcome = WelcomePage()
         self.welcome.new_requested.connect(self._new_project_dialog)
         self.welcome.open_requested.connect(self._open_project_dialog)
         self.welcome.recent_requested.connect(self._open_recent)
         self.pages = QStackedWidget()
         self.pages.addWidget(self.welcome)
-        self.pages.addWidget(self.workspace)
+        self.pages.addWidget(self.workspace_page)
         self.setCentralWidget(self.pages)
 
     def _build_actions(self) -> None:
@@ -388,6 +454,14 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(action("Quit", self.close, None, QKeySequence.StandardKey.Quit))
 
+        self.undo_action = action("Undo", lambda _checked=False: self.undo(), "undo", QKeySequence.StandardKey.Undo,
+                                  "Undo the last change to the set-up (Ctrl+Z)")  # fmt: skip
+        self.redo_action = action("Redo", lambda _checked=False: self.redo(), "redo", QKeySequence.StandardKey.Redo,
+                                  "Redo the change you undid (Ctrl+Y)")  # fmt: skip
+        edit_menu = self.menuBar().addMenu("&Edit")
+        edit_menu.addAction(self.undo_action)
+        edit_menu.addAction(self.redo_action)
+
         sim_menu = self.menuBar().addMenu("&Simulation")
         for act in (self.mesh_action, self.run_action, self.continue_action, self.stop_action):
             sim_menu.addAction(act)
@@ -395,6 +469,23 @@ class MainWindow(QMainWindow):
         sim_menu.addAction(self.paraview_action)
 
         view_menu = self.menuBar().addMenu("&View")
+        # the panels: checked = shown. (A slot gets the action's "checked" first, so values come after it.)
+        self.compact_action = action("Workflow steps as icons only", lambda checked: self.set_compact_steps(checked),
+                                     "chevrons-left", "Ctrl+Shift+B",
+                                     "Narrow the list of steps to its icons, to make more room (Ctrl+Shift+B)")  # fmt: skip
+        self.settings_action = action("Settings of the step", lambda checked: self.workspace.set_folded(not checked),
+                                      "panel-fold-left", "Ctrl+B",
+                                      "Show the settings, or fold them away to widen the 3D view (Ctrl+B)")  # fmt: skip
+        self.plots_action = action("Plots and log", lambda checked: self.right.set_folded(not checked),
+                                   "panel-fold-down", "Ctrl+J",
+                                   "Show the plots and the log, or fold them down to their tabs (Ctrl+J)")  # fmt: skip
+        for act, checked in ((self.compact_action, False), (self.settings_action, True), (self.plots_action, True)):
+            act.setCheckable(True)
+            act.setChecked(checked)
+            view_menu.addAction(act)
+        view_menu.addAction(action("Reset the layout", lambda _checked=False: self.reset_layout(), "layout", None,
+                                   "Put every panel back at its first size"))  # fmt: skip
+        view_menu.addSeparator()
         self.view_actions: dict[str, QAction] = {}
         for key, text, shortcut in (
             ("fit", "Fit everything", "Ctrl+0"), ("iso", "Three-quarter view", "Ctrl+1"),
@@ -402,13 +493,16 @@ class MainWindow(QMainWindow):
             ("+y", "Look along +Y", "Ctrl+4"), ("-y", "Look along −Y", "Ctrl+5"),
             ("+z", "Look along +Z", "Ctrl+6"), ("-z", "Look along −Z", "Ctrl+7"),
         ):  # fmt: skip
-            act = action(text, lambda k=key: self._view(k), None, shortcut)
+            act = action(text, lambda _checked=False, k=key: self._view(k), None, shortcut)
             view_menu.addAction(act)
             self.view_actions[key] = act
         view_menu.addSeparator()
+        self.tab_actions: dict[str, QAction] = {}
         for name, icon_name in (("Residuals", "activity"), ("Forces", "gauge"),
                                 ("Probes", "crosshair"), ("Log", "terminal")):  # fmt: skip
-            view_menu.addAction(action(f"Show {name.lower()}", lambda n=name: self._show_tab(n), icon_name))
+            act = action(f"Show {name.lower()}", lambda _checked=False, n=name: self._show_tab(n), icon_name)
+            view_menu.addAction(act)
+            self.tab_actions[name] = act
 
         self.runtime_menu = self.menuBar().addMenu("&OpenFOAM")
         self._fill_runtime_menu()
@@ -422,21 +516,135 @@ class MainWindow(QMainWindow):
         bar.setMovable(False)
         bar.setIconSize(QSize(22, 22))
         bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-        for act in (self.new_action, self.open_action, self.save_action, None, self.mesh_action,
-                    self.run_action, self.continue_action, self.stop_action, None, self.paraview_action):  # fmt: skip
+        for act in (self.new_action, self.open_action, self.save_action, self.undo_action, self.redo_action, None,
+                    self.mesh_action, self.run_action, self.continue_action, self.stop_action, None,
+                    self.paraview_action):  # fmt: skip
             bar.addSeparator() if act is None else bar.addAction(act)
         self._fill_recent_menu()
+        self._update_undo()
+
+    # --------------------------------------------------------------- history
+
+    def _snapshot(self) -> str:
+        """The set-up as text, for undo and redo (which OpenFOAM it runs with is not part of it)."""
+        data = self.project.to_dict()
+        data.pop("runtime", None)
+        return json.dumps(data, sort_keys=True)
+
+    def undo(self) -> None:
+        """Put the set-up back as it was before the last change."""
+        self._step_history(back=True)
+
+    def redo(self) -> None:
+        """Make the change that was undone again."""
+        self._step_history(back=False)
+
+    def _step_history(self, back: bool) -> None:
+        if self.project is None or self.case_dir is None:
+            return
+        self.history.record(self._snapshot())  # a change still waiting to be saved is a step of its own
+        snapshot = self.history.step_back() if back else self.history.step_forward()
+        if snapshot is None:
+            return
+        runtime = self.project.runtime
+        self.project = Project.from_dict(json.loads(snapshot))
+        self.project.runtime = runtime
+        self._save_timer.stop()
+        self.project.save(self.case_dir)
+        row = self.steps.currentRow()
+        self._load_panels()
+        self.steps.setCurrentRow(row)
+        self._step_selected(row)
+        self.refresh_status()
+        self._update_undo()
+        self.statusBar().showMessage("Undid the last change." if back else "Made the change again.", 4000)
+
+    def _update_undo(self) -> None:
+        is_open = self.project is not None
+        self.undo_action.setEnabled(is_open and self.history.can_undo)
+        self.redo_action.setEnabled(is_open and self.history.can_redo)
+
+    # ----------------------------------------------------------------- layout
+
+    def set_compact_steps(self, compact: bool) -> None:
+        """Show the workflow steps as icons only, or with their names and summaries."""
+        self.step_delegate.compact = compact
+        self.steps.setFixedWidth(COMPACT_WIDTH if compact else FULL_WIDTH)
+        self.compact_button.setIcon(icon("chevrons-right" if compact else "chevrons-left"))
+        self.compact_button.setToolTip("Show the names of the steps (Ctrl+Shift+B)" if compact
+                                       else "Show only the icons of the steps, to make more room (Ctrl+Shift+B)")  # fmt: skip
+        self._check(self.compact_action, compact)
+        self.steps.doItemsLayout()
+        self.steps.viewport().update()
+
+    @staticmethod
+    def _check(action: QAction, checked: bool) -> None:
+        """Tick or untick a menu entry without running it again."""
+        action.blockSignals(True)
+        action.setChecked(checked)
+        action.blockSignals(False)
+
+    def _settings_folded(self, folded: bool) -> None:
+        self._check(self.settings_action, not folded)
+
+    def _plots_folded(self, folded: bool) -> None:
+        self._check(self.plots_action, not folded)
+        self.fold_plots_button.setIcon(icon("panel-fold-up" if folded else "panel-fold-down"))
+        self.fold_plots_button.setToolTip("Bring back the plots and the log (Ctrl+J)" if folded
+                                          else "Fold the plots and the log down to their tabs (Ctrl+J)")  # fmt: skip
+
+    def reset_layout(self) -> None:
+        """Every panel back as it started: the steps with their names, the settings and the plots open."""
+        self.set_compact_steps(False)
+        self.workspace.set_folded(False)
+        self.right.set_folded(False)
+        self.workspace.open_size, self.right.open_size = DEFAULT_LAYOUT["centre"][0], DEFAULT_LAYOUT["right"][1]
+        self.workspace.setSizes(DEFAULT_LAYOUT["centre"])  # in proportion: the splitter scales them to its size
+        self.right.setSizes(DEFAULT_LAYOUT["right"])
+
+    def layout_state(self) -> dict:
+        return {"compact_steps": self.step_delegate.compact, "centre": self.workspace.layout_state(),
+                "right": self.right.layout_state()}  # fmt: skip
+
+    def _apply_layout(self) -> None:
+        """Size the panels as remembered (or as at first), once the workspace is on screen at its real size.
+
+        Sizes given to a hidden splitter are lost when it first grows to the window's size.
+        """
+        if self._layout_applied or not self.isVisible() or self.pages.currentWidget() is not self.workspace_page:
+            return
+        self._layout_applied = True
+        saved = state.load_layout()
+        self.set_compact_steps(bool(saved.get("compact_steps")))
+        self.workspace_page.resize(self.pages.size())
+        self.workspace_page.layout().activate()
+        self.workspace.setSizes(DEFAULT_LAYOUT["centre"])  # in proportion to the space there is
+        self.right.setSizes(DEFAULT_LAYOUT["right"])
+        for splitter, key in ((self.workspace, "centre"), (self.right, "right")):
+            if isinstance(saved.get(key), dict):
+                splitter.restore_layout(saved[key])
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._apply_layout()
+
+    def _remember_layout(self) -> None:
+        """Keep the panel sizes for next time, if they are on screen now (otherwise they mean nothing)."""
+        if self.isVisible() and self.pages.currentWidget() is self.workspace_page:
+            state.save_layout(self.layout_state())
 
     # ---------------------------------------------------------------- project
 
     def _set_project_open(self, is_open: bool) -> None:
-        self.pages.setCurrentWidget(self.workspace if is_open else self.welcome)
+        self.pages.setCurrentWidget(self.workspace_page if is_open else self.welcome)
         for act in (self.save_action, self.mesh_action, self.run_action, self.paraview_action,
                     self.folder_action, self.close_action):  # fmt: skip
             act.setEnabled(is_open)
         self.stop_action.setEnabled(False)
         self.continue_action.setEnabled(False)
-        if not is_open:
+        if is_open:
+            self._apply_layout()
+        else:
             self.welcome.set_recent(state.load_recent())
 
     def notify(self, title: str, text: str, level: str = "info") -> None:
@@ -470,7 +678,10 @@ class MainWindow(QMainWindow):
             self.notify("Close project", "A task is still running. Stop it first.")
             return
         self.save_project()
+        self._remember_layout()
         self.project, self.case_dir, self._results = None, None, None
+        self.history.reset(None)
+        self._update_undo()
         self._set_project_open(False)
         self._update_title()
 
@@ -495,6 +706,8 @@ class MainWindow(QMainWindow):
         case_dir = Path(case_dir)
         self.project = Project.load(case_dir)
         self.case_dir = case_dir
+        self.history.reset(self._snapshot())
+        self._update_undo()
         if self.project.runtime:
             self.runtime = Runtime.from_json(self.project.runtime)
         self._results = None
@@ -536,6 +749,8 @@ class MainWindow(QMainWindow):
         if self.project is not None and self.case_dir is not None:
             self._save_timer.stop()
             self.project.save(self.case_dir)
+            if self.history.record(self._snapshot()):
+                self._update_undo()
 
     def _project_changed(self, shape: bool = False, physics: bool = False) -> None:
         self._save_timer.start()
@@ -570,7 +785,7 @@ class MainWindow(QMainWindow):
             item = self.steps.item(row)
             item.setData(STATE_ROLE, states[name].state)
             item.setData(DETAIL_ROLE, states[name].detail)
-            item.setToolTip(states[name].detail)
+            item.setToolTip(f"{name}: {states[name].detail}")
         self.run_panel.show_issues(project_issues(self.project, patches, bool(real)))
         can_continue = bool(times) and bool(real) and self.thread is None
         self.continue_action.setEnabled(can_continue)
@@ -701,17 +916,21 @@ class MainWindow(QMainWindow):
             self.viewer.fit() if key == "fit" else self.viewer.set_view(key)
 
     def _show_tab(self, name: str) -> None:
+        self.right.set_folded(False)  # asked for: show it, even if the plots were folded away
         for index in range(self.bottom.count()):
             if self.bottom.tabText(index) == name:
                 self.bottom.setCurrentIndex(index)
 
-    def show_progress(self, done: float | None, total: float | None) -> None:
-        """Show how far a run is (``None`` hides the bar)."""
+    def show_progress(self, done: float | None, total: float | None, left: float | None = None) -> None:
+        """Show how far a run is and, once its pace is known, how long it still needs (``None`` hides the bar)."""
         if done is None or not total:
             self.progress.hide()
+            self.time_left.hide()
             return
         self.progress.setValue(max(0, min(100, int(100 * done / total))))
         self.progress.show()
+        self.time_left.setText(f"{in_words(left)} left" if left is not None else "estimating the time left…")
+        self.time_left.show()
 
     def _point_dragged(self, point: list[float]) -> None:
         """The user dragged the point-inside-the-fluid ball in the 3D view."""
@@ -734,9 +953,12 @@ class MainWindow(QMainWindow):
             return False
         return True
 
-    def _start(self, name: str, steps, parse_step: str | None = None, case_dir: Path | None = None) -> None:
+    def _start(self, name: str, steps, parse_step: str | None = None, case_dir: Path | None = None,
+               total: float | None = None) -> None:  # fmt: skip
         self.save_project()
         self._stop_requested = False
+        self._pace.reset()
+        self._job_started, self._job_total = time.monotonic(), total
         self.log.appendPlainText(f"\n=== {name} — {self.runtime.label} ===")
         self.thread = JobThread(case_dir or self.case_dir, self.runtime, name, steps, parse_step, parent=self)
         self.thread.step_started.connect(lambda step: self.statusBar().showMessage(f"{name}: {step}…"))
@@ -797,7 +1019,7 @@ class MainWindow(QMainWindow):
             self._reset_plot()
         if self.plot is not None:
             self.bottom.setCurrentWidget(self.plot)
-        self._start("run", steps, parse_step=self.project.physics.solver)
+        self._start("run", steps, parse_step=self.project.physics.solver, total=self.project.run.end_time)
 
     def continue_run(self) -> None:
         self.run_solver(resume=True)
@@ -863,25 +1085,29 @@ class MainWindow(QMainWindow):
             lines.append(line)
         if lines:
             self.log.appendPlainText("\n".join(lines))
+        parser = thread.job.parser
+        left = None
+        if parser.time is not None and self._job_total:
+            self._pace.add(parser.time)
+            left = self._pace.seconds_left(self._job_total)
+            self.show_progress(parser.time, self._job_total, left)
         if thread.name == "run":
-            self._update_plot(thread.job.parser)
+            self._update_plot(parser)
             self._ticks += 1
             if self._ticks % 7 == 0:
                 self._update_forces()
-            parser = thread.job.parser
-            if parser.time is not None:
+            if parser.time is not None and not self._stop_requested:
                 steady = solver_spec(self.project.physics.solver).steady
                 unit = "iteration" if steady else "time"
-                if not self._stop_requested:
-                    water = (
-                        f" — water fills {100 * parser.water_fraction[-1][1]:.2f} % of the domain"
-                        if parser.water_fraction
-                        else ""
-                    )
-                    self.run_panel.status.setText(
-                        f"Running — {unit} {parser.time:g} of {self.project.run.end_time:g}{water}"
-                    )
-                self.show_progress(parser.time, self.project.run.end_time)
+                water = (
+                    f" — water fills {100 * parser.water_fraction[-1][1]:.2f} % of the domain"
+                    if parser.water_fraction
+                    else ""
+                )
+                eta = f" — {in_words(left)} left" if left is not None else ""
+                self.run_panel.status.setText(
+                    f"Running — {unit} {parser.time:g} of {self.project.run.end_time:g}{water}{eta}"
+                )
 
     def _job_finished(self, result) -> None:
         thread, self.thread = self.thread, None
@@ -892,6 +1118,8 @@ class MainWindow(QMainWindow):
             self.thread = None
             thread.wait(2000)
         name = thread.name if thread else "task"
+        seconds = time.monotonic() - self._job_started
+        spent = took(seconds)
 
         if isinstance(result, Exception):
             self._set_running(False, f"{name} could not start: {result}")
@@ -899,23 +1127,26 @@ class MainWindow(QMainWindow):
             return
         assert isinstance(result, JobResult)
         if result.stopped:
-            self._set_running(False, f"{name} stopped.")
+            message = f"{name.capitalize()} stopped after {spent}."
         elif not result.ok:
-            reason = result.parser.error or "see the Log tab for the tool's message"
-            self._set_running(False, f"{name} failed in step '{result.failed_step}'.")
-            self.bottom.setCurrentWidget(self.log)
-            QMessageBox.warning(self, f"{name} failed", f"Step '{result.failed_step}' failed.\n\n{reason}")
+            message = f"{name.capitalize()} failed in step '{result.failed_step}' after {spent}."
         elif name == "mesh":
             cells = f" ({self._mesh_cells:,} cells)" if self._mesh_cells else ""
-            self._set_running(False, f"Mesh ready{cells}.")
+            message = f"Mesh ready{cells} in {spent}."
         elif name == "compute":
-            self._set_running(False, f"Computed {self._pending_field}.")
+            message = f"Computed {self._pending_field} in {spent}."
         elif name == "tracer test":
-            self._set_running(False, "Tracer test finished.")
+            message = f"Tracer test finished in {spent}."
         elif self._stop_requested:
-            self._set_running(False, "Stopped; the current state was saved. Use Continue to carry on.")
+            message = "Stopped; the current state was saved. Use Continue to carry on."
         else:
-            self._set_running(False, "Run finished.")
+            message = f"Run finished in {spent}."
+        self._set_running(False, message)
+        self._announce(message, result.ok, seconds)
+        if not result.ok and not result.stopped:
+            reason = result.parser.error or "see the Log tab for the tool's message"
+            self.bottom.setCurrentWidget(self.log)
+            QMessageBox.warning(self, f"{name} failed", f"Step '{result.failed_step}' failed.\n\n{reason}")
 
         self._load_boundaries()
         self.reload_results(show=False)
@@ -929,6 +1160,35 @@ class MainWindow(QMainWindow):
                 self.results_panel.select_field("U", "water")  # the water surface, coloured by speed
             self.steps.setCurrentRow(STEPS.index("Results"))
         self.refresh_view()
+
+    def _announce(self, text: str, ok: bool, seconds: float) -> None:
+        """Tell someone who has turned to something else that a long task has ended."""
+        if seconds < ALERT_AFTER or self.isActiveWindow():
+            return
+        QApplication.alert(self, 0)  # the taskbar button flashes until the window is looked at
+        tray = self._tray_icon()
+        if tray is not None:
+            kind = QSystemTrayIcon.MessageIcon.Information if ok else QSystemTrayIcon.MessageIcon.Warning
+            tray.showMessage("EasyFOAM", text, kind, 10000)
+            QTimer.singleShot(15000, tray.hide)
+
+    def _tray_icon(self) -> QSystemTrayIcon | None:
+        """The icon in the notification area that carries the message, while it is shown."""
+        if self._tray is None:
+            if not (QSystemTrayIcon.isSystemTrayAvailable() and QSystemTrayIcon.supportsMessages()):
+                return None
+            self._tray = QSystemTrayIcon(icon("easyfoam"), self)
+            self._tray.setToolTip("EasyFOAM")
+            self._tray.messageClicked.connect(self._bring_to_front)
+            self._tray.activated.connect(lambda _reason: self._bring_to_front())
+        self._tray.show()
+        return self._tray
+
+    def _bring_to_front(self) -> None:
+        if self.isMinimized():
+            self.showNormal()
+        self.raise_()
+        self.activateWindow()
 
     # ------------------------------------------------------------------ plots
 
@@ -1445,7 +1705,8 @@ class MainWindow(QMainWindow):
             f"Water volume {volume:.4g} m³, inflow {inflow:.4g} m³/s: theoretical residence time V/Q = "
             f"{residence:.4g} s. Following the tracer for {settings.duration or 3 * residence:.4g} s."
         )
-        self._start("tracer test", steps, parse_step="pimpleFoam", case_dir=target)
+        self._start("tracer test", steps, parse_step="pimpleFoam", case_dir=target,
+                    total=settings.duration or 3 * residence)  # fmt: skip
 
     def _residence(self) -> None:
         from easyfoam import tracertest as tt
@@ -1584,6 +1845,7 @@ class MainWindow(QMainWindow):
             self.thread.stop()
             self.thread.wait(5000)
         self.save_project()
+        self._remember_layout()
         if self._detect_thread is not None:
             self._detect_thread.wait(3000)
         if self.viewer is not None:

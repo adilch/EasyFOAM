@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ogee spillway crest from its design head — EasyFOAM tutorials</title>
+<meta name="description" content="Make a spillway crest from its design head, let EasyFOAM give its design discharge, and check that the crest runs at that head with about atmospheric pressure on it.">
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="25" cy="32" r="8"/><path d="M8 15h14c11 0 13 7 23 7h11M8 49h14c11 0 13-7 23-7h11M41 32h15"/></svg><span>EasyFOAM</span><span class="brand-sub">tutorials</span></a>
+  <nav>
+    <a href="../index.html">All tutorials</a>
+    <a href="../tutorials/getting-started.html">Install</a>
+  </nav>
+</header>
+<div class="layout">
+<aside class="contents">
+  <a class="back" href="../index.html">← All tutorials</a>
+  <p class="contents-title">Steps</p>
+  <ol>
+<li><a href="#step-1">Open the example</a></li>
+<li><a href="#step-2">Name the project</a></li>
+<li><a href="#step-3">The crest</a></li>
+<li><a href="#step-4">Its design</a></li>
+<li><a href="#step-5">The design discharge</a></li>
+<li><a href="#step-6">Mesh and run</a></li>
+<li><a href="#step-7">The head over the crest</a></li>
+<li><a href="#step-8">Pressure on the crest</a></li>
+  </ol>
+</aside>
+<main class="tutorial">
+  <p class="crumb">Tutorial 13 of 19</p>
+  <h1>Ogee spillway crest from its design head</h1>
+  <p class="lead">Make a spillway crest from its design head, let EasyFOAM give its design discharge, and check that the crest runs at that head with about atmospheric pressure on it.</p>
+  <div class="chips"><span class="chip">about 25 min</span><span class="chip level-intermediate">Intermediate</span><span class="chip topic">Free surface</span><span class="chip topic">Hydraulic structures</span><span class="chip topic">Checked against theory</span></div>
+  <p>An ogee crest is shaped like the underside of the sheet of water that would spring clear of a sharp crest at the <em>design head</em> Hd. At that head the water follows the crest closely, the pressure on it is about atmospheric, and the crest passes Q = C·W·Hd^1.5 with C close to <strong>2.18</strong> (in metres and seconds) when the crest stands well above the bed. The standard shape (the WES crest of the US Army Corps of Engineers) follows from Hd alone: three circular arcs upstream of the apex and the curve x^1.85 = 2 Hd^0.85 y downstream of it, down to the face of the spillway.</p>
+<p>In this tutorial you open an example in which EasyFOAM has made such a crest from a design head of 0.1 m, look at its design, and run the design discharge over it.</p>
+  <div class="learn"><h3>What you will learn</h3><ul><li>make a structure from its design values and see it drawn as you type</li><li>read the design discharge EasyFOAM works out for it</li><li>check the head over the crest with a long section</li><li>look at the pressure along the crest</li></ul><p class="run-time">Computer time: about twenty minutes on two cores.</p></div>
+<section class="step" id="step-1">
+<h2><span class="step-number">1</span>Open the example</h2>
+<p>Start EasyFOAM. This case is one of the examples on the start page: it comes with every setting filled in, and this tutorial walks through each of them so that you understand the case and could build it yourself.</p>
+<ol class="marks"><li>Click <strong>Ogee spillway crest</strong>.</li></ol>
+<figure><a href="img/ogee/01.webp" class="zoom"><img src="img/ogee/01.webp" alt="Ogee spillway crest from its design head, step 1: Open the example" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-2">
+<h2><span class="step-number">2</span>Name the project</h2>
+<p>The project is an ordinary folder that EasyFOAM creates for you.</p>
+<ol class="marks"><li>Type a name, for example <code>ogee</code>.</li><li>Click <strong>Create project</strong>.</li></ol>
+<figure><a href="img/ogee/02.webp" class="zoom"><img src="img/ogee/02.webp" alt="Ogee spillway crest from its design head, step 2: Name the project" loading="lazy" width="650" height="248"></a></figure>
+</section>
+<section class="step" id="step-3">
+<h2><span class="step-number">3</span>The crest</h2>
+<p>The channel is a thin slice, 2 cm wide, of a wide spillway: 3.5 m long and 0.8 m high, with frictionless sides. The crest is a <strong>structure</strong>, made from its design values; the summary under it says what it is and the discharge it is made for.</p>
+<ol class="marks"><li>The shape <strong>ogee</strong>, an ogee crest.</li><li>Where it stands and its design discharge.</li><li><strong>Change the design…</strong> opens its design.</li></ol>
+<figure><a href="img/ogee/03.webp" class="zoom"><img src="img/ogee/03.webp" alt="Ogee spillway crest from its design head, step 3: The crest" loading="lazy" width="1900" height="1125"></a></figure>
+<aside class="tip"><p><strong>Structure</strong> above the list makes a new one: an ogee crest, a stepped spillway, a labyrinth weir, a stilling basin, a culvert or a fishway.</p></aside>
+</section>
+<section class="step" id="step-4">
+<h2><span class="step-number">4</span>Its design</h2>
+<p>The design head is <strong>0.1 m</strong> and the crest stands <strong>0.4 m</strong> above the bed, so P/Hd = 4: the water arrives slowly enough not to change the coefficient. Below the curve the face slopes at <strong>0.75</strong> horizontal to 1 vertical and turns into the bed along a curve of <strong>0.1 m</strong> radius. The side view draws the crest with the design head as a dashed line; the lines below it give the design discharge, <strong>1.38 litres a second</strong> through the slice (0.069 m³/s per metre).</p>
+<ol class="marks"><li><strong>Structure</strong>: <em>Ogee crest</em>.</li><li><strong>Design head Hd</strong>: <code>0.1</code> m.</li><li><strong>Crest height P</strong>: <code>0.4</code> m.</li><li>The crest from the side and from above.</li><li>Its design discharge, and P/Hd.</li></ol>
+<figure><a href="img/ogee/04.webp" class="zoom"><img src="img/ogee/04.webp" alt="Ogee spillway crest from its design head, step 4: Its design" loading="lazy" width="1350" height="800"></a></figure>
+<aside class="tip"><p>Change a value and the drawing and the figures follow at once; <strong>Use this structure</strong> keeps it.</p></aside>
+</section>
+<section class="step" id="step-5">
+<h2><span class="step-number">5</span>The design discharge</h2>
+<p>The inlet lets in exactly that discharge: <strong>0.00137875 m³/s</strong>. The reservoir starts filled to the design head, so the run settles quickly; the outlet lets the water leave freely.</p>
+<ol class="marks"><li>The boundary <strong>inlet</strong>.</li><li><strong>Flow rate</strong>: <code>0.00137875</code> m³/s, the design discharge.</li></ol>
+<figure><a href="img/ogee/05.webp" class="zoom"><img src="img/ogee/05.webp" alt="Ogee spillway crest from its design head, step 5: The design discharge" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-6">
+<h2><span class="step-number">6</span>Mesh and run</h2>
+<p>The crest is cut out of the mesh by snappyHexMesh, with cells half the size along its surface. Run the ten seconds on two cores.</p>
+<ol class="marks"><li>Click <strong>Mesh</strong> in the toolbar (or press <strong>F5</strong>).</li><li><strong>End time</strong>: <code>10</code> s.</li><li>Click <strong>Run</strong> in the toolbar (or press <strong>F6</strong>).</li></ol>
+<figure><a href="img/ogee/06.webp" class="zoom"><img src="img/ogee/06.webp" alt="Ogee spillway crest from its design head, step 6: Mesh and run" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-7">
+<h2><span class="step-number">7</span>The head over the crest</h2>
+<p>In <strong>Results</strong>, average the last <strong>6</strong> saved times and press <strong>Long section</strong>. Upstream of the crest the water stands <strong>0.50 m</strong> above the bed: a head of about <strong>0.10 m</strong> over the crest, the design head it was made for. Over the crest the water speeds up and passes critical depth, then runs down the face, fast and shallow.</p>
+<ol class="marks"><li><strong>Average over</strong>: <code>6</code> saved times.</li><li>Press <strong>Long section</strong>.</li><li>Discharge and depth along the spillway.</li></ol>
+<figure><a href="img/ogee/07.webp" class="zoom"><img src="img/ogee/07.webp" alt="Ogee spillway crest from its design head, step 7: The head over the crest" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+<section class="step" id="step-8">
+<h2><span class="step-number">8</span>Pressure on the crest</h2>
+<p>Pick <strong>ogee</strong> under <strong>Structure</strong> and press <strong>Pressure along it</strong>. Up the upstream face the pressure grows with the depth of water; over the crest it falls to about <strong>zero</strong>, atmospheric, as it should at the design head. Run a larger discharge and it falls below atmospheric over the crest: the reason a crest is not run far above its design head.</p>
+<ol class="marks"><li><strong>Structure</strong>: <code>ogee</code>.</li><li>Press <strong>Pressure along it</strong>.</li></ol>
+<figure><a href="img/ogee/08.webp" class="zoom"><img src="img/ogee/08.webp" alt="Ogee spillway crest from its design head, step 8: Pressure on the crest" loading="lazy" width="1900" height="1125"></a></figure>
+</section>
+  <nav class="pager"><a class="prev" href="jump.html"><span>Previous</span>Hydraulic jump: long section and loads</a><a class="next" href="basin.html"><span>Next</span>Stilling basin from the flow entering it</a></nav>
+</main>
+</div>
+<div class="lightbox" hidden><img alt=""></div>
+<footer class="foot">
+  <p>EasyFOAM is free software (GPL-3.0-or-later). It is an independent project: it is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com and owner of the OPENFOAM® and OpenCFD® trade marks, and it is not affiliated with any other vendor of simulation software.</p>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>
